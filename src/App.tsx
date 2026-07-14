@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { AuditItem, ComparisonDelta, HlrObject, LlrObject, MatrixRowObject, NormalizedStatus, ParseResults, RequirementKind } from './types';
 import { buildNeighborhoodGraph } from './lib/graph';
+import { tokenizeMatrixRowText, MatrixRowTokenCategory } from './lib/matrixRowHighlighting';
 import { tokenizeRequirementText } from './lib/textTinting';
 
 const EMPTY_RESULTS: ParseResults = {
@@ -668,7 +669,7 @@ function RequirementDetail({
                   <span className="font-mono font-semibold">Row {row.rowNumber}</span>
                   <span className={`rounded border px-2 py-0.5 uppercase ${statusClass(row.normalizedStatus)}`}>{row.rawStatusText}</span>
                 </div>
-                <p className="mt-2 break-words font-mono text-slate-400">{row.rawText}</p>
+                <p className="mt-2 break-words font-mono text-slate-400"><MatrixRowText text={row.rawText} /></p>
               </button>
             ))}
           </div>
@@ -696,6 +697,27 @@ function RequirementDetail({
         </section>
       </aside>
     </div>
+  );
+}
+
+const MATRIX_ROW_TOKEN_CLASSES: Record<MatrixRowTokenCategory, string | undefined> = {
+  path: 'text-teal-200',
+  hlrId: 'text-sky-300',
+  llrId: 'text-indigo-300',
+  separator: 'text-slate-600',
+  prose: undefined,
+};
+
+function MatrixRowText({ text }: { text: string }) {
+  return (
+    <>
+      {tokenizeMatrixRowText(text).map((token, index) => {
+        const className = MATRIX_ROW_TOKEN_CLASSES[token.category];
+        return className
+          ? <span key={index} className={className}>{token.text}</span>
+          : <React.Fragment key={index}>{token.text}</React.Fragment>;
+      })}
+    </>
   );
 }
 
