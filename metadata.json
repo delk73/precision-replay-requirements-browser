@@ -1,0 +1,6 @@
+{
+  "name": "Precision Replay Requirements Browser",
+  "description": "A minimal, read-only browser for reviewing HLR and LLR definitions, traceability matrix rows, evidence paths, and branch change context.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

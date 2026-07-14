@@ -1,0 +1,77 @@
+Row | HLR IDs | LLR IDs | Raw Status Text | Evidence Paths | Notes
+1 | HLR-REPLAY-ORIGIN-001 | LLR-REPLAY-001 | pending | | Initial setup is pending review
+2 | HLR-REPLAY-ORIGIN-002 | LLR-REPLAY-002 | Implemented and tested | src/replay/saved_math.ts, tests/math_test.py | Implemented and tested only for direct saved math replay input
+3 | HLR-REPLAY-ORIGIN-003 | LLR-REPLAY-001 | Implemented | src/replay/vectors.ts | Origin boundary condition alignment verified
+4 | HLR-REPLAY-ORIGIN-004 | LLR-REPLAY-003 | verified | src/replay/checksum.ts, proof/checksum.retained_proof | XOR checksum verify passed
+5 | HLR-REPLAY-ORIGIN-005 | LLR-REPLAY-004 | Implemented and tested | src/replay/safety_bounds.ts | Coordinates bounds check
+6 | HLR-REPLAY-ORIGIN-006 | | Implemented | src/replay/error_reporter.ts | Command error alert logs
+7 | HLR-REPLAY-ORIGIN-007 | | verification passed | proofs/cache_proof.txt | Caching is verified
+8 | HLR-REPLAY-ORIGIN-008 | | verified | src/replay/gps_sync.ts | Telemetry time check
+9 | HLR-REPLAY-ORIGIN-009 | LLR-REPLAY-005 | Implemented | src/replay/serializer.ts | State vector serialization
+10 | HLR-REPLAY-ORIGIN-010 | | Implemented | src/replay/fallback.ts | Zero-state fallback loader
+11 | HLR-REPLAY-PROJ-001 | LLR-REPLAY-006 | Implemented and tested | src/replay/adc_proj.ts | Applies only to raw-ADC-derived replay input
+12 | HLR-REPLAY-PROJ-002 | LLR-REPLAY-007 | Implemented | src/replay/filter.ts | Applies only to raw-ADC-derived replay input
+13 | HLR-REPLAY-PROJ-003 | LLR-REPLAY-008 | Implemented and tested | src/replay/voltage_guard.ts | Applies only to raw-ADC-derived replay input
+14 | HLR-REPLAY-PROJ-004 | LLR-REPLAY-009 | Implemented | src/replay/scheduler.ts | Applies only to raw-ADC-derived replay input
+15 | HLR-REPLAY-PROJ-005 | LLR-REPLAY-006 | Implemented | src/replay/adc_map.ts | Applies only to raw-ADC-derived replay input
+16 | HLR-REPLAY-PROJ-006 | LLR-REPLAY-010 | Implemented and tested | src/replay/temp_comp.ts | Applies only to raw-ADC-derived replay input
+17 | HLR-REPLAY-PROJ-007 | | Implemented | src/replay/adc_logger.ts | Projection log operations
+18 | HLR-REPLAY-PROJ-008 | | verified | proofs/projection_time.txt | Constant time projection transform
+19 | HLR-REPLAY-PROJ-009 | | Implemented | src/replay/boot_check.ts | Coefficient integrity check
+20 | HLR-REPLAY-PROJ-010 | | Implemented | src/replay/map_fallback.ts | Default projection map fallback
+21 | HLR-REPLAY-PROJ-011 | | verification passed | tests/adc_reorder_test.py | Discard out-of-order samples
+22 | HLR-REPLAY-PROJ-012 | | Implemented | src/replay/latency_tracker.ts | Tracking latency scores
+23 | HLR-REPLAY-RETAINED-RUN-001 | LLR-REPLAY-011 | pending | | Retained run operator index query
+24 | HLR-REPLAY-RETAINED-RUN-002 | LLR-REPLAY-011 | pending | | Retained run storage mount and verification
+25 | HLR-REPLAY-RETAINED-RUN-003 | LLR-REPLAY-012 | pending | | Historical logs write-protection enforcement
+26 | HLR-REPLAY-RETAINED-RUN-004 | | pending | | Differential run comparison pending
+27 | HLR-REPLAY-RETAINED-RUN-005 | | pending | | Partitions error flag mapping pending
+28 | HLR-REPLAY-RETAINED-RUN-006 | | pending | | Copy selected block commands pending
+29 | HLR-REPLAY-RETAINED-RUN-007 | | pending | | Cryptographic verification signature checks pending
+30 | HLR-REPLAY-RETAINED-RUN-008 | | pending | | Unified run metadata schema formatting pending
+31 | HLR-REPLAY-TRACE-001 | LLR-REPLAY-013 | pending | | Continuous step trace mapping pending
+32 | HLR-REPLAY-TRACE-002 | LLR-REPLAY-014 | pending | | Trace stream evaluation output pending
+33 | HLR-REPLAY-TRACE-003 | | pending | | Header trace metadata embedding pending
+34 | HLR-REPLAY-TRACE-004 | | pending | | Trace coordinate interpolation checks pending
+35 | HLR-REPLAY-TRACE-005 | | pending | | Trace fast coordinate index lookup pending
+36 | HLR-REPLAY-TRACE-006 | LLR-REPLAY-014 | pending | | Run-length trace compression pending
+37 | HLR-REPLAY-TRACE-007 | | pending | | Trace export to YAML pending
+38 | HLR-REPLAY-TRACE-008 | | pending | | Limit cross-reference verification pending
+39 | HLR-REPLAY-COMPARE-001 | LLR-REPLAY-015 | pending | | Replay state vector baseline comparison pending
+40 | HLR-REPLAY-COMPARE-002 | LLR-REPLAY-015 | pending | | Epsilon discrepancy score calculator pending
+41 | HLR-REPLAY-COMPARE-003 | LLR-REPLAY-016 | pending | | Divergence alert generation pending
+42 | HLR-REPLAY-COMPARE-004 | | pending | | User-defined sensitivity profiles pending
+43 | HLR-REPLAY-COMPARE-005 | | pending | | Digital outputs comparison checks pending
+44 | HLR-REPLAY-COMPARE-006 | | pending | | Telemetry noise threshold settings pending
+45 | HLR-REPLAY-COMPARE-007 | | pending | | Divergence baseline sync markers pending
+46 | HLR-REPLAY-COMPARE-008 | | pending | | Overall score percentage summation pending
+47 | HLR-REPLAY-EVAL-001 | LLR-REPLAY-017 | pending | | Invariant criteria evaluation pending
+48 | HLR-REPLAY-EVAL-002 | LLR-REPLAY-018 | not credited | src/replay/checker.ts | existing checker output is not credited as the broader replay-evaluation model
+49 | HLR-REPLAY-EVAL-003 | LLR-REPLAY-017 | pending | | Runtime safety checks pending
+50 | HLR-REPLAY-EVAL-004 | | pending | | Evaluation status output logs pending
+51 | HLR-REPLAY-EVAL-005 | | pending | | Evaluation audit database log entries pending
+52 | HLR-REPLAY-EVAL-006 | | pending | | XML schema custom validation loader pending
+53 | HLR-REPLAY-EVAL-007 | | pending | | Bypassed rule identification checks pending
+54 | HLR-REPLAY-EVAL-008 | | pending | | Energy calculation logs pending
+55 | HLR-REPLAY-OPS-001 | LLR-REPLAY-019 | pending | | Start, pause, resume command actions pending
+56 | HLR-REPLAY-OPS-002 | LLR-REPLAY-019 | pending | | Active operator safety guard controls pending
+57 | HLR-REPLAY-OPS-003 | LLR-REPLAY-020 | pending | | Input authority logging database pending
+58 | HLR-REPLAY-OPS-004 | | pending | | Batch multi-run orchestration pending
+59 | HLR-REPLAY-OPS-005 | | pending | | FPS frame playback dashboard visualization pending
+60 | HLR-REPLAY-OPS-006 | | pending | | Automatic loop command lock limits pending
+61 | HLR-REPLAY-OPS-007 | | pending | | operator socket context restore loops pending
+62 | HLR-REPLAY-OPS-008 | | pending | | Hot-reload input data streams pending
+63 | HLR-REPLAY-ENV-001 | LLR-REPLAY-021 | pending | | Envelope signing operations pending
+64 | HLR-REPLAY-ENV-002 | LLR-REPLAY-022 | remains separate | src/replay/adc_envelope.ts | raw ADC witness envelope remains separate from replay-trace envelope
+65 | HLR-REPLAY-ENV-003 | LLR-REPLAY-021 | pending | | CBOR packet envelope layout mapping pending
+66 | HLR-REPLAY-ENV-004 | LLR-REPLAY-023 | pending | | Header metadata sequence checks pending
+67 | HLR-REPLAY-ENV-005 | LLR-REPLAY-023 | pending | | Corrupted frame filter checks pending
+68 | HLR-REPLAY-ENV-006 | | pending | | Cryptographic loop timing calculation pending
+69 | HLR-REPLAY-ENV-007 | | pending | | Virtual isolated serial port links pending
+70 | HLR-REPLAY-ENV-008 | | pending | | Hardware secure keys module handshake pending
+71 | HLR-REPLAY-AGREE-001 | LLR-REPLAY-024 | pending | | Target agreement absolute calculation pending
+72 | HLR-REPLAY-AGREE-002 | | pending | | Target coordinate bounds matrix definition pending
+73 | HLR-REPLAY-AGREE-003 | | pending | | Achievement signaling interfaces pending
+74 | HLR-REPLAY-AGREE-004 | LLR-REPLAY-024 | pending | | float64 high precision logic checks pending
+75 | HLR-REPLAY-AGREE-005 | LLR-REPLAY-025 | pending | | agreement console printing summary pending
+76 | HLR-REPLAY-AGREE-006 | | pending | | certified fault adaptive relaxation logic pending
