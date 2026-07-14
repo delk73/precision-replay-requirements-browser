@@ -1,356 +1,143 @@
-import { 
-  HlrObject, 
-  LlrObject, 
-  MatrixRowObject, 
-  EvidencePathObject, 
-  AuditItem, 
-  NormalizedStatus, 
-  ParseResults 
+import {
+  AuditItem,
+  EvidencePathObject,
+  HlrObject,
+  LlrObject,
+  MatrixRowObject,
+  MissingId,
+  MissingState,
+  NormalizedStatus,
+  ParseResults,
+  ReferencedOnlyId,
+  RepoValidation,
+  SourceFileStatus,
+  WorkPacket,
 } from '../types';
 
-// Helper to extract IDs matching a pattern
+export interface RawSourceFile {
+  path: string;
+  content: string;
+  required: boolean;
+}
+
+export interface ParseInput {
+  validation: RepoValidation;
+  sourceFiles: SourceFileStatus[];
+  files: RawSourceFile[];
+}
+
+const HLR_ID = /HLR-[A-Z0-9-]+/gi;
+const LLR_ID = /LLR-[A-Z0-9-]+/gi;
+const HLR_HEADING = /^(#{2,6})\s+(HLR-[A-Z0-9-]+):?\s*(.*)$/i;
+const LLR_HEADING = /^(#{2,6})\s+(LLR-[A-Z0-9-]+):?\s*(.*)$/i;
+
 export function extractIds(text: string, pattern: RegExp): string[] {
   const matches = text.match(new RegExp(pattern.source, 'gi'));
   if (!matches) return [];
-  return Array.from(new Set(matches.map(id => id.toUpperCase())));
+  return Array.from(new Set(matches.map((id) => id.toUpperCase())));
 }
 
-// Normalize status conservatively using exact requirements
 export function normalizeStatus(rawStatusText: string): NormalizedStatus {
   const clean = rawStatusText.trim().toLowerCase();
   if (!clean) return 'unknown';
-
-  if (clean === 'implemented' || clean === 'implemented and tested' || clean.includes('implemented')) {
-    return 'implemented';
-  }
-  if (
-    clean === 'verified' || 
-    clean === 'verification passed' || 
-    clean === 'retained proof' || 
-    clean === 'retained check' || 
-    clean === 'retained artifact pass' ||
-    clean.includes('verification passed') ||
-    clean.includes('retained proof') ||
-    clean.includes('retained check') ||
-    clean.includes('retained artifact pass')
-  ) {
+  if (clean.includes('verified') || clean.includes('verification passed') || clean.includes('retained proof') || clean.includes('retained check') || clean.includes('artifact pass')) {
     return 'verified';
   }
-  if (clean === 'pending' || clean.includes('pending')) {
-    return 'pending';
-  }
-  if (
-    clean === 'partial' || 
-    clean === 'bounded' || 
-    clean === 'limited' || 
-    clean === 'initial-only' ||
-    clean.includes('partial') ||
-    clean.includes('bounded') ||
-    clean.includes('limited') ||
-    clean.includes('initial-only')
-  ) {
-    return 'partial';
-  }
-  if (
-    clean === 'boundary' || 
-    clean === 'not credited' || 
-    clean === 'does not implement' || 
-    clean === 'excludes' || 
-    clean === 'remains separate' ||
-    clean.includes('boundary') ||
-    clean.includes('not credited') ||
-    clean.includes('does not implement') ||
-    clean.includes('excludes') ||
-    clean.includes('remains separate')
-  ) {
+  if (clean.includes('implemented') || clean.includes('traced')) return 'implemented';
+  if (clean.includes('pending')) return 'pending';
+  if (clean.includes('partial') || clean.includes('bounded') || clean.includes('limited') || clean.includes('initial-only')) return 'partial';
+  if (clean.includes('boundary') || clean.includes('not credited') || clean.includes('does not implement') || clean.includes('excludes') || clean.includes('remains separate')) {
     return 'boundary';
   }
-
   return 'unknown';
 }
 
-// Guess the type of an evidence path
 export function guessPathType(pathText: string): EvidencePathObject['typeGuess'] {
   const clean = pathText.toLowerCase().trim();
-  if (clean.includes('test') || clean.includes('spec') || clean.endsWith('_test.py') || clean.endsWith('test.ts')) {
-    return 'test';
-  }
-  if (clean.includes('proof') || clean.endsWith('.retained_proof')) {
-    return 'proof';
-  }
-  if (clean.includes('artifact') || clean.includes('build') || clean.endsWith('.hex') || clean.endsWith('.bin')) {
-    return 'artifact';
-  }
-  if (clean.includes('tool') || clean.includes('config')) {
-    return 'tool';
-  }
-  if (
-    clean.endsWith('.ts') || 
-    clean.endsWith('.tsx') || 
-    clean.endsWith('.py') || 
-    clean.endsWith('.c') || 
-    clean.endsWith('.cpp') || 
-    clean.endsWith('.h') || 
-    clean.endsWith('.go')
-  ) {
-    return 'code';
-  }
+  if (clean.includes('test') || clean.includes('spec') || clean.endsWith('_test.py') || clean.endsWith('test.ts')) return 'test';
+  if (clean.includes('proof') || clean.includes('.retained_proof')) return 'proof';
+  if (clean.includes('artifact') || clean.includes('build') || clean.endsWith('.hex') || clean.endsWith('.bin')) return 'artifact';
+  if (clean.includes('tool') || clean.includes('config')) return 'tool';
+  if (/\.(ts|tsx|py|rs|c|cpp|h|go|toml|md|json|yaml|yml)$/i.test(clean)) return 'code';
   return 'unknown';
 }
 
-// Parsing HLR definitions from markdown
-export function parseHlrs(rawMarkdown: string, filename: string): HlrObject[] {
-  const lines = rawMarkdown.split('\n');
-  const hlrs: HlrObject[] = [];
-  let currentHlr: Partial<HlrObject> | null = null;
+function parseDefinitions(file: RawSourceFile, kind: 'hlr'): HlrObject[];
+function parseDefinitions(file: RawSourceFile, kind: 'llr'): LlrObject[];
+function parseDefinitions(file: RawSourceFile, kind: 'hlr' | 'llr'): Array<HlrObject | LlrObject> {
+  const lines = file.content.split(/\r?\n/);
+  const heading = kind === 'hlr' ? HLR_HEADING : LLR_HEADING;
+  const results: Array<HlrObject | LlrObject> = [];
+  let current:
+    | {
+        id: string;
+        kind: 'hlr' | 'llr';
+        title: string;
+        sourceFile: string;
+        sourceLine: number;
+      }
+    | null = null;
   let blockLines: string[] = [];
 
-  const hlrHeadingRegex = /^###\s+(HLR-[A-Z0-9-]+):?(.*)$/i;
+  const flush = () => {
+    if (!current?.id) return;
+    const text = blockLines.join('\n').trim();
+    const rawSnippet = `${kind === 'hlr' ? 'HLR' : 'LLR'} ${current.id}\n${text}`.trim();
+    if (kind === 'hlr') {
+      results.push({ ...current, kind: 'hlr', text, rawSnippet });
+    } else {
+      const traces = blockLines
+        .filter((line) => /traces[- ]to\s*:/i.test(line))
+        .flatMap((line) => extractIds(line, HLR_ID));
+      results.push({ ...current, kind: 'llr', text, rawSnippet, tracedHlrIds: Array.from(new Set(traces)) });
+    }
+  };
 
   lines.forEach((line, index) => {
-    const lineNum = index + 1;
-    const match = line.match(hlrHeadingRegex);
-
-    if (match) {
-      // Save preceding HLR if existing
-      if (currentHlr && currentHlr.id) {
-        currentHlr.text = blockLines.join('\n').trim();
-        currentHlr.rawSnippet = `### ${currentHlr.id}:\n` + currentHlr.text;
-        hlrs.push(currentHlr as HlrObject);
-      }
-
-      const id = match[1].toUpperCase();
-      const title = match[2].trim();
-
-      currentHlr = {
-        id,
-        title: title || `Requirement ${id}`,
-        text: '',
-        sourceFile: filename,
-        sourceLine: lineNum,
-        rawSnippet: ''
-      };
-      blockLines = [];
-    } else if (currentHlr) {
-      blockLines.push(line);
+    const match = line.match(heading);
+    if (!match) {
+      if (current) blockLines.push(line);
+      return;
     }
+
+    flush();
+    const id = match[2].toUpperCase();
+    current = {
+      id,
+      kind,
+      title: match[3].trim() || id,
+      sourceFile: file.path,
+      sourceLine: index + 1,
+    };
+    blockLines = [];
   });
 
-  // Save the last HLR
-  if (currentHlr && currentHlr.id) {
-    currentHlr.text = blockLines.join('\n').trim();
-    currentHlr.rawSnippet = `### ${currentHlr.id}:\n` + currentHlr.text;
-    hlrs.push(currentHlr as HlrObject);
-  }
-
-  return hlrs;
+  flush();
+  return results;
 }
 
-// Parsing LLR definitions from markdown
-export function parseLlrs(rawMarkdown: string, filename: string): LlrObject[] {
-  const lines = rawMarkdown.split('\n');
-  const llrs: LlrObject[] = [];
-  let currentLlr: Partial<LlrObject> | null = null;
-  let blockLines: string[] = [];
-
-  const llrHeadingRegex = /^###\s+(LLR-[A-Z0-9-]+):?(.*)$/i;
-
-  lines.forEach((line, index) => {
-    const lineNum = index + 1;
-    const match = line.match(llrHeadingRegex);
-
-    if (match) {
-      if (currentLlr && currentLlr.id) {
-        currentLlr.text = blockLines.join('\n').trim();
-        currentLlr.rawSnippet = `### ${currentLlr.id}:\n` + currentLlr.text;
-        // Parse Traces-to from block lines
-        const tracesLine = blockLines.find(l => /traces[- ]to:/i.test(l));
-        currentLlr.tracedHlrIds = tracesLine ? extractIds(tracesLine, /HLR-[A-Z0-9-]+/g) : [];
-        llrs.push(currentLlr as LlrObject);
-      }
-
-      const id = match[1].toUpperCase();
-      const title = match[2].trim();
-
-      currentLlr = {
-        id,
-        title: title || `Requirement ${id}`,
-        text: '',
-        sourceFile: filename,
-        sourceLine: lineNum,
-        tracedHlrIds: [],
-        rawSnippet: ''
-      };
-      blockLines = [];
-    } else if (currentLlr) {
-      blockLines.push(line);
-    }
-  });
-
-  if (currentLlr && currentLlr.id) {
-    currentLlr.text = blockLines.join('\n').trim();
-    currentLlr.rawSnippet = `### ${currentLlr.id}:\n` + currentLlr.text;
-    const tracesLine = blockLines.find(l => /traces[- ]to:/i.test(l));
-    currentLlr.tracedHlrIds = tracesLine ? extractIds(tracesLine, /HLR-[A-Z0-9-]+/g) : [];
-    llrs.push(currentLlr as LlrObject);
-  }
-
-  return llrs;
-}
-
-// Parsing traceability matrix
-export function parseMatrix(rawText: string, filename: string): { rows: MatrixRowObject[], evidence: EvidencePathObject[] } {
-  const lines = rawText.split('\n');
+export function parseMatrix(rawText: string, filename: string): { rows: MatrixRowObject[]; evidence: EvidencePathObject[] } {
   const rows: MatrixRowObject[] = [];
   const evidence: EvidencePathObject[] = [];
+  const lines = rawText.split(/\r?\n/);
+  let rowNumber = 1;
 
-  // Check if it's the markdown version of the traceability matrix
-  const isMarkdownFormat = filename.endsWith('.md') || rawText.includes('## 1.') || rawText.includes('| Requirement |') || rawText.includes('Row-Class Policy') || rawText.includes('| Code Component');
-
-  if (isMarkdownFormat) {
-    let rowNumber = 1;
-
-    lines.forEach((line, index) => {
-      const lineNum = index + 1;
-      const trimmed = line.trim();
-      
-      if (!trimmed || trimmed.startsWith('---') || trimmed.includes(':---')) {
-        return;
-      }
-
-      if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
-        const parts = trimmed.split('|').map(p => p.trim());
-        // Clean up empty outer elements from split
-        if (parts[0] === '') parts.shift();
-        if (parts[parts.length - 1] === '') parts.pop();
-
-        // Check if this is a header row
-        const isHeader = parts.some(p => p.toLowerCase().includes('requirement') || p.toLowerCase().includes('code component') || p.toLowerCase().includes('implementation block'));
-        if (isHeader) {
-          return; // Skip headers
-        }
-
-        const rowText = parts.join(' | ');
-        const detectedHlrIds = extractIds(rowText, /HLR-[A-Z0-9-]+/g);
-        const detectedLlrIds = extractIds(rowText, /LLR-[A-Z0-9-]+/g);
-
-        // If no requirements are mentioned, it's not a traceability row
-        if (detectedHlrIds.length === 0 && detectedLlrIds.length === 0) {
-          return;
-        }
-
-        // Status determination
-        let rawStatusText = 'implemented';
-        let normalizedStatus: NormalizedStatus = 'implemented';
-
-        // Search for status indicators in the row
-        const statusString = rowText.toLowerCase();
-        if (statusString.includes('remain pending') || statusString.includes('is pending') || statusString.includes('are pending') || statusString.includes('pending verification')) {
-          rawStatusText = 'pending';
-          normalizedStatus = 'pending';
-        } else if (statusString.includes('retained artifact pass') || statusString.includes('validation passed') || statusString.includes('proof coverage') || statusString.includes('active kani coverage') || statusString.includes('verification passed') || statusString.includes('verified')) {
-          rawStatusText = 'verified';
-          normalizedStatus = 'verified';
-        } else if (statusString.includes('partial') || statusString.includes('bounded') || statusString.includes('limited')) {
-          rawStatusText = 'partial';
-          normalizedStatus = 'partial';
-        } else if (statusString.includes('boundary') || statusString.includes('excludes') || statusString.includes('remains separate')) {
-          rawStatusText = 'boundary';
-          normalizedStatus = 'boundary';
-        } else if (statusString.includes('implemented') || statusString.includes('traced')) {
-          rawStatusText = 'implemented';
-          normalizedStatus = 'implemented';
-        }
-
-        // Path extraction: find any backticked paths or text resembling paths
-        const detectedPaths: string[] = [];
-        
-        // 1. Find backticked file paths
-        const backtickRegex = /`([^`]+)`/g;
-        let match;
-        while ((match = backtickRegex.exec(rowText)) !== null) {
-          const path = match[1].trim();
-          // Check if it looks like a path (has slash, dot, or matches typical project folders)
-          if (
-            path.includes('/') || 
-            path.endsWith('.rs') || 
-            path.endsWith('.py') || 
-            path.endsWith('.md') || 
-            path.endsWith('.toml') || 
-            path.endsWith('.txt') ||
-            path === 'I64F64' ||
-            path.includes('test')
-          ) {
-            const cleanPath = path.replace(/<br>/g, '').trim();
-            if (cleanPath && !detectedPaths.includes(cleanPath)) {
-              detectedPaths.push(cleanPath);
-            }
-          }
-        }
-
-        // 2. Fallback: search for typical file patterns
-        const pathPattern = /\b(core|bsp|runners|tools|tests|artifacts|verification|docs)\/[\w.-]+(?:\/[\w.-]+)*\b/g;
-        while ((match = pathPattern.exec(rowText)) !== null) {
-          const path = match[0].trim();
-          if (!detectedPaths.includes(path)) {
-            detectedPaths.push(path);
-          }
-        }
-
-        rows.push({
-          rowNumber,
-          rawText: line,
-          detectedHlrIds,
-          detectedLlrIds,
-          detectedPaths,
-          rawStatusText,
-          normalizedStatus,
-          sourceLine: lineNum
-        });
-
-        detectedPaths.forEach(path => {
-          evidence.push({
-            pathText: path,
-            rowSource: rowNumber,
-            typeGuess: guessPathType(path)
-          });
-        });
-
-        rowNumber++;
-      }
-    });
-
-    return { rows, evidence };
-  }
-
-  // Legacy/fallback text parser
   lines.forEach((line, index) => {
-    const lineNum = index + 1;
-    if (!line.trim() || line.startsWith('Row |') || line.startsWith('---')) {
-      return; // Skip headers/empty
-    }
+    const trimmed = line.trim();
+    if (!trimmed || !trimmed.startsWith('|') || !trimmed.endsWith('|') || trimmed.includes(':---')) return;
 
-    const parts = line.split('|').map(p => p.trim());
-    if (parts.length < 4) return; // Malformed row
+    const cells = trimmed.split('|').map((part) => part.trim()).filter(Boolean);
+    const lowerCells = cells.map((part) => part.toLowerCase());
+    if (lowerCells.some((part) => part.includes('requirement') || part.includes('code component') || part.includes('implementation block'))) return;
 
-    const rowNumStr = parts[0];
-    const rowNumber = parseInt(rowNumStr, 10);
-    if (isNaN(rowNumber)) return; // Not a valid row line
+    const rowText = cells.join(' | ');
+    const detectedHlrIds = extractIds(rowText, HLR_ID);
+    const detectedLlrIds = extractIds(rowText, LLR_ID);
+    if (detectedHlrIds.length === 0 && detectedLlrIds.length === 0) return;
 
-    const rawHlrCell = parts[1] || '';
-    const rawLlrCell = parts[2] || '';
-    const rawStatusText = parts[3] || '';
-    const rawPathsCell = parts[4] || '';
-
-    const detectedHlrIds = extractIds(rawHlrCell, /HLR-[A-Z0-9-]+/g);
-    const detectedLlrIds = extractIds(rawLlrCell, /LLR-[A-Z0-9-]+/g);
-    
-    // Split paths by comma
-    const detectedPaths = rawPathsCell
-      ? rawPathsCell.split(',').map(p => p.trim()).filter(Boolean)
-      : [];
-
-    const normalizedStatus = normalizeStatus(rawStatusText);
+    const detectedPaths = extractPaths(rowText);
+    const statusCell = cells.find((cell) => normalizeStatus(cell) !== 'unknown') ?? '';
+    const normalizedStatus = normalizeStatus(statusCell || rowText);
 
     rows.push({
       rowNumber,
@@ -358,249 +145,285 @@ export function parseMatrix(rawText: string, filename: string): { rows: MatrixRo
       detectedHlrIds,
       detectedLlrIds,
       detectedPaths,
-      rawStatusText,
+      rawStatusText: statusCell || normalizedStatus,
       normalizedStatus,
-      sourceLine: lineNum
+      sourceFile: filename,
+      sourceLine: index + 1,
     });
 
-    detectedPaths.forEach(path => {
-      evidence.push({
-        pathText: path,
-        rowSource: rowNumber,
-        typeGuess: guessPathType(path)
-      });
+    detectedPaths.forEach((pathText) => {
+      evidence.push({ pathText, rowSource: rowNumber, sourceFile: filename, typeGuess: guessPathType(pathText) });
     });
+    rowNumber += 1;
   });
 
   return { rows, evidence };
 }
 
-// Perform Audit and return audit findings
-export function auditRepository(
-  hlrs: HlrObject[],
-  llrs: LlrObject[],
-  matrixRows: MatrixRowObject[],
-  isBranchCompared: boolean = false, // branch comparison toggle
-  comparedResults?: { hlrs: HlrObject[], matrixRows: MatrixRowObject[] }
-): AuditItem[] {
-  const audits: AuditItem[] = [];
-
-  // Helper maps for O(1) lookup
-  const hlrDefMap = new Map<string, HlrObject>();
-  const llrDefMap = new Map<string, LlrObject>();
-
-  // Check HLR duplicates
-  const seenHlrIds = new Set<string>();
-  hlrs.forEach(h => {
-    if (seenHlrIds.has(h.id)) {
-      audits.push({
-        id: `dup-hlr-${h.id}`,
-        severity: 'Error',
-        message: `Duplicate HLR definition heading: '${h.id}' is defined multiple times in sources`,
-        category: 'Duplicate Definition',
-        hlrId: h.id
-      });
-    } else {
-      seenHlrIds.add(h.id);
-      hlrDefMap.set(h.id, h);
-    }
-  });
-
-  // Check LLR duplicates
-  const seenLlrIds = new Set<string>();
-  llrs.forEach(l => {
-    if (seenLlrIds.has(l.id)) {
-      audits.push({
-        id: `dup-llr-${l.id}`,
-        severity: 'Error',
-        message: `Duplicate LLR definition heading: '${l.id}' is defined multiple times in sources`,
-        category: 'Duplicate Definition',
-        llrId: l.id
-      });
-    } else {
-      seenLlrIds.add(l.id);
-      llrDefMap.set(l.id, l);
-    }
-  });
-
-  // Check LLR traces to missing HLR definitions
-  llrs.forEach(l => {
-    l.tracedHlrIds.forEach(hlrId => {
-      if (!hlrDefMap.has(hlrId)) {
-        audits.push({
-          id: `missing-hlr-trace-${l.id}-${hlrId}`,
-          severity: 'Error',
-          message: `LLR definition '${l.id}' traces to missing HLR definition: '${hlrId}'`,
-          category: 'Missing Definition',
-          llrId: l.id,
-          hlrId
-        });
-      }
-    });
-  });
-
-  // Tracking which HLRs/LLRs are in the matrix
-  const matrixReferencedHlrs = new Set<string>();
-  const matrixReferencedLlrs = new Set<string>();
-
-  matrixRows.forEach(row => {
-    // 1. Check matrix row references missing HLR definitions
-    row.detectedHlrIds.forEach(hlrId => {
-      matrixReferencedHlrs.add(hlrId);
-      if (!hlrDefMap.has(hlrId)) {
-        audits.push({
-          id: `matrix-missing-hlr-${row.rowNumber}-${hlrId}`,
-          severity: 'Error',
-          message: `Traceability matrix row ${row.rowNumber} references missing HLR definition: '${hlrId}'`,
-          category: 'Missing Definition',
-          rowNumber: row.rowNumber,
-          hlrId
-        });
-      }
-    });
-
-    // 2. Check matrix row references missing LLR definitions when row claims LLR mapping
-    row.detectedLlrIds.forEach(llrId => {
-      matrixReferencedLlrs.add(llrId);
-      if (!llrDefMap.has(llrId)) {
-        audits.push({
-          id: `matrix-missing-llr-${row.rowNumber}-${llrId}`,
-          severity: 'Error',
-          message: `Traceability matrix row ${row.rowNumber} references missing LLR definition: '${llrId}'`,
-          category: 'Missing Definition',
-          rowNumber: row.rowNumber,
-          llrId
-        });
-      }
-    });
-
-    // Warnings:
-    // 3. Implemented row has no implementation/evidence path
-    const isImplementedOrVerified = row.normalizedStatus === 'implemented' || row.normalizedStatus === 'verified';
-    if (isImplementedOrVerified && row.detectedPaths.length === 0) {
-      audits.push({
-        id: `warn-empty-path-${row.rowNumber}`,
-        severity: 'Warning',
-        message: `Traceability matrix row ${row.rowNumber} is marked as '${row.rawStatusText}' but has no implementation or evidence paths`,
-        category: 'Missing Evidence',
-        rowNumber: row.rowNumber
-      });
-    }
-
-    // 4. Pending row names implementation-looking code/evidence paths
-    if (row.normalizedStatus === 'pending' && row.detectedPaths.length > 0) {
-      const codeOrTestPaths = row.detectedPaths.filter(p => {
-        const guess = guessPathType(p);
-        return guess === 'code' || guess === 'test' || guess === 'proof';
-      });
-      if (codeOrTestPaths.length > 0) {
-        audits.push({
-          id: `warn-pending-with-code-${row.rowNumber}`,
-          severity: 'Warning',
-          message: `Traceability matrix row ${row.rowNumber} is marked as pending but references implementation files: '${codeOrTestPaths.join(', ')}'`,
-          category: 'Code in Pending',
-          rowNumber: row.rowNumber
-        });
-      }
-    }
-  });
-
-  // 5. Check HLR defined but missing from matrix
-  hlrs.forEach(h => {
-    if (!matrixReferencedHlrs.has(h.id)) {
-      audits.push({
-        id: `missing-hlr-matrix-${h.id}`,
-        severity: 'Error',
-        message: `HLR definition '${h.id}' is defined in source but is missing from traceability matrix`,
-        category: 'Missing Matrix Row',
-        hlrId: h.id
-      });
-    }
-  });
-
-  // 6. Check LLR defined but missing from matrix
-  llrs.forEach(l => {
-    if (!matrixReferencedLlrs.has(l.id)) {
-      audits.push({
-        id: `missing-llr-matrix-${l.id}`,
-        severity: 'Error',
-        message: `LLR definition '${l.id}' is defined in source but is missing from traceability matrix`,
-        category: 'Missing Matrix Row',
-        llrId: l.id
-      });
-    }
-  });
-
-  // Warnings for branch comparison
-  if (isBranchCompared && comparedResults) {
-    const originalHlrMap = new Map(comparedResults.hlrs.map(h => [h.id, h]));
-    const originalMatrixMap = new Map(comparedResults.matrixRows.map(r => [r.rowNumber, r]));
-
-    // Check requirement text changed across compared branch
-    hlrs.forEach(h => {
-      const orig = originalHlrMap.get(h.id);
-      if (orig && orig.text !== h.text) {
-        audits.push({
-          id: `warn-branch-text-${h.id}`,
-          severity: 'Warning',
-          message: `Requirement text for HLR '${h.id}' changed across compared branches`,
-          category: 'Branch Delta',
-          hlrId: h.id
-        });
-      }
-    });
-
-    // Check matrix status changed across compared branch
-    matrixRows.forEach(row => {
-      const orig = originalMatrixMap.get(row.rowNumber);
-      if (orig && orig.rawStatusText !== row.rawStatusText) {
-        audits.push({
-          id: `warn-branch-status-${row.rowNumber}`,
-          severity: 'Warning',
-          message: `Matrix status for Row ${row.rowNumber} (HLR: ${row.detectedHlrIds.join(', ')}) changed from '${orig.rawStatusText}' to '${row.rawStatusText}' across branches`,
-          category: 'Branch Delta',
-          rowNumber: row.rowNumber
-        });
-      }
-    });
+function extractPaths(text: string): string[] {
+  const paths = new Set<string>();
+  const backtickRegex = /`([^`]+)`/g;
+  let match: RegExpExecArray | null;
+  while ((match = backtickRegex.exec(text))) {
+    const value = match[1].replace(/<br\s*\/?>/gi, ' ').trim();
+    if (looksLikePath(value)) paths.add(value);
   }
 
-  return audits;
+  const pathPattern = /\b(?:src|core|bsp|runners|tools|tests|artifacts|verification|docs|proofs?)\/[\w./-]+\b/g;
+  while ((match = pathPattern.exec(text))) {
+    paths.add(match[0]);
+  }
+  return Array.from(paths);
 }
 
-// Master parsing function for all files
-export function parseAllFiles(
-  hlrText: string,
-  llrText: string,
-  matrixText: string,
-  isBranchCompared: boolean = false,
-  comparedHlrText?: string,
-  comparedMatrixText?: string
-): ParseResults {
-  const isLiveMarkdown = matrixText.includes('| Code Component') || matrixText.includes('Row-Class Policy') || matrixText.includes('| Requirement');
-  const matrixFilename = isLiveMarkdown ? 'docs/normative/traceability_matrix.md' : 'src/fixtures/traceability_matrix.txt';
-  const hlrFilename = isLiveMarkdown ? 'docs/normative/HLR_math.md' : 'src/fixtures/hlr_definitions.md';
-  const llrFilename = isLiveMarkdown ? 'docs/design/LLR_math.md' : 'src/fixtures/llr_definitions.md';
+function looksLikePath(value: string): boolean {
+  return value.includes('/') || /\.(rs|ts|tsx|py|c|cpp|h|md|toml|json|yaml|yml|txt|bin|hex)$/i.test(value);
+}
 
-  const hlrs = parseHlrs(hlrText, hlrFilename);
-  const llrs = parseLlrs(llrText, llrFilename);
-  const { rows: matrixRows, evidence: evidencePaths } = parseMatrix(matrixText, matrixFilename);
+function referencesFromFiles(files: RawSourceFile[]): Map<string, Set<string>> {
+  const references = new Map<string, Set<string>>();
+  const add = (id: string, source: string) => {
+    const upper = id.toUpperCase();
+    if (!references.has(upper)) references.set(upper, new Set());
+    references.get(upper)!.add(source);
+  };
 
-  let comparedResults: { hlrs: HlrObject[], matrixRows: MatrixRowObject[] } | undefined;
+  files.forEach((file) => {
+    extractIds(file.content, HLR_ID).forEach((id) => add(id, file.path));
+    extractIds(file.content, LLR_ID).forEach((id) => add(id, file.path));
+  });
+  return references;
+}
 
-  if (isBranchCompared && comparedHlrText && comparedMatrixText) {
-    const compHlrs = parseHlrs(comparedHlrText, hlrFilename);
-    const { rows: compRows } = parseMatrix(comparedMatrixText, matrixFilename);
-    comparedResults = { hlrs: compHlrs, matrixRows: compRows };
-  }
+function classifyMissing(id: string, sources: string[], sourceFiles: SourceFileStatus[]): MissingState {
+  const family = id.startsWith('HLR-') ? 'HLR' : 'LLR';
+  const requiredForFamily = sourceFiles.filter((file) => file.required && file.path.includes(`/${family}_`));
+  if (requiredForFamily.length === 0) return 'missing_from_repo';
+  if (requiredForFamily.some((file) => !file.loaded)) return 'source_not_loaded';
+  if (sources.length > 0) return 'referenced_only';
+  return 'missing_from_repo';
+}
 
-  const audits = auditRepository(hlrs, llrs, matrixRows, isBranchCompared, comparedResults);
+export function parseRepoSources(input: ParseInput): ParseResults {
+  const hlrFiles = input.files.filter((file) => /(^|\/)HLR_[^/]+\.md$/i.test(file.path));
+  const llrFiles = input.files.filter((file) => /(^|\/)LLR_[^/]+\.md$/i.test(file.path));
+  const matrixFile = input.files.find((file) => file.path === 'docs/normative/traceability_matrix.md');
+  const verificationFiles = input.files.filter((file) => /^docs\/verification\/.*\.md$/i.test(file.path));
+
+  const hlrs = hlrFiles.flatMap((file) => parseDefinitions(file, 'hlr'));
+  const llrs = llrFiles.flatMap((file) => parseDefinitions(file, 'llr'));
+  const { rows: matrixRows, evidence: matrixEvidence } = matrixFile
+    ? parseMatrix(matrixFile.content, matrixFile.path)
+    : { rows: [], evidence: [] };
+
+  const verificationEvidence = verificationFiles.flatMap((file) =>
+    extractPaths(file.content).map((pathText, index) => ({
+      pathText,
+      rowSource: -(index + 1),
+      sourceFile: file.path,
+      typeGuess: guessPathType(pathText),
+    })),
+  );
+
+  const referencedOnly = buildReferencedOnly(input.files, hlrs, llrs);
+  const missingIds = buildMissingIds(input.sourceFiles, hlrs, llrs, matrixRows, referencedOnly);
+  const audits = auditRepository(input.sourceFiles, hlrs, llrs, matrixRows, missingIds);
+  const workPackets = buildWorkPackets(hlrs, llrs, matrixRows, audits);
 
   return {
+    validation: input.validation,
+    sourceFiles: input.sourceFiles,
     hlrs,
     llrs,
     matrixRows,
-    evidencePaths,
-    audits
+    evidencePaths: [...matrixEvidence, ...verificationEvidence],
+    referencedOnly,
+    missingIds,
+    audits,
+    workPackets,
   };
+}
+
+function buildReferencedOnly(files: RawSourceFile[], hlrs: HlrObject[], llrs: LlrObject[]): ReferencedOnlyId[] {
+  const defined = new Set([...hlrs.map((h) => h.id), ...llrs.map((l) => l.id)]);
+  const references = referencesFromFiles(files);
+  return Array.from(references.entries())
+    .filter(([id]) => !defined.has(id))
+    .map(([id, sources]) => ({ id, kind: id.startsWith('HLR-') ? 'hlr' : 'llr', sources: Array.from(sources).sort() }));
+}
+
+function buildMissingIds(
+  sourceFiles: SourceFileStatus[],
+  hlrs: HlrObject[],
+  llrs: LlrObject[],
+  matrixRows: MatrixRowObject[],
+  referencedOnly: ReferencedOnlyId[],
+): MissingId[] {
+  const hlrDefMap = new Map(hlrs.map((h) => [h.id, h]));
+  const llrDefMap = new Map(llrs.map((l) => [l.id, l]));
+  const missing = new Map<string, MissingId>();
+  const add = (id: string, kind: 'hlr' | 'llr', sources: string[]) => {
+    const state = classifyMissing(id, sources, sourceFiles);
+    missing.set(`${kind}:${id}`, { id, kind, state, sources: Array.from(new Set(sources)).sort() });
+  };
+
+  llrs.forEach((llr) => {
+    llr.tracedHlrIds.forEach((id) => {
+      if (!hlrDefMap.has(id)) add(id, 'hlr', [llr.sourceFile]);
+    });
+  });
+
+  matrixRows.forEach((row) => {
+    row.detectedHlrIds.forEach((id) => {
+      if (!hlrDefMap.has(id)) add(id, 'hlr', [row.sourceFile]);
+    });
+    row.detectedLlrIds.forEach((id) => {
+      if (!llrDefMap.has(id)) add(id, 'llr', [row.sourceFile]);
+    });
+  });
+
+  referencedOnly.forEach((ref) => add(ref.id, ref.kind, ref.sources));
+  return Array.from(missing.values()).sort((a, b) => a.id.localeCompare(b.id));
+}
+
+export function auditRepository(
+  sourceFiles: SourceFileStatus[],
+  hlrs: HlrObject[],
+  llrs: LlrObject[],
+  matrixRows: MatrixRowObject[],
+  missingIds: MissingId[],
+): AuditItem[] {
+  const audits: AuditItem[] = [];
+  const hlrDefMap = new Map<string, HlrObject>();
+  const llrDefMap = new Map<string, LlrObject>();
+
+  sourceFiles.filter((file) => file.required && !file.loaded).forEach((file) => {
+    audits.push({
+      id: `source-not-loaded-${file.path}`,
+      severity: 'Error',
+      category: 'Definition Source Not Loaded',
+      sourceFile: file.path,
+      message: `Required source file was not loaded: ${file.path}`,
+      missingState: 'source_not_loaded',
+    });
+  });
+
+  for (const h of hlrs) {
+    if (hlrDefMap.has(h.id)) {
+      audits.push({ id: `duplicate-hlr-${h.id}-${h.sourceFile}-${h.sourceLine}`, severity: 'Error', category: 'Duplicate Definition', hlrId: h.id, sourceFile: h.sourceFile, message: `Duplicate HLR definition: ${h.id}` });
+    } else {
+      hlrDefMap.set(h.id, h);
+    }
+  }
+
+  for (const l of llrs) {
+    if (llrDefMap.has(l.id)) {
+      audits.push({ id: `duplicate-llr-${l.id}-${l.sourceFile}-${l.sourceLine}`, severity: 'Error', category: 'Duplicate Definition', llrId: l.id, sourceFile: l.sourceFile, message: `Duplicate LLR definition: ${l.id}` });
+    } else {
+      llrDefMap.set(l.id, l);
+    }
+  }
+
+  missingIds.forEach((missing) => {
+    audits.push({
+      id: `missing-${missing.kind}-${missing.id}-${missing.state}`,
+      severity: missing.state === 'source_not_loaded' ? 'Error' : 'Warning',
+      category: missing.state === 'referenced_only' ? 'Unresolved Reference' : 'Missing Definition',
+      hlrId: missing.kind === 'hlr' ? missing.id : undefined,
+      llrId: missing.kind === 'llr' ? missing.id : undefined,
+      missingState: missing.state,
+      message: `${missing.id} is ${missing.state.replaceAll('_', ' ')}.`,
+    });
+  });
+
+  llrs.forEach((llr) => {
+    llr.tracedHlrIds.forEach((hlrId) => {
+      if (!hlrDefMap.has(hlrId)) {
+        audits.push({ id: `llr-traces-missing-hlr-${llr.id}-${hlrId}`, severity: 'Error', category: 'LLR Trace Missing HLR', llrId: llr.id, hlrId, sourceFile: llr.sourceFile, message: `${llr.id} traces to missing HLR ${hlrId}.` });
+      }
+    });
+  });
+
+  const matrixHlrs = new Set<string>();
+  const matrixLlrs = new Set<string>();
+  matrixRows.forEach((row) => {
+    row.detectedHlrIds.forEach((id) => matrixHlrs.add(id));
+    row.detectedLlrIds.forEach((id) => matrixLlrs.add(id));
+
+    row.detectedHlrIds.forEach((hlrId) => {
+      if (!hlrDefMap.has(hlrId)) {
+        audits.push({ id: `matrix-hlr-missing-${row.rowNumber}-${hlrId}`, severity: 'Error', category: 'Matrix ID Missing Definition', rowNumber: row.rowNumber, hlrId, sourceFile: row.sourceFile, message: `Matrix row ${row.rowNumber} references missing HLR definition ${hlrId}.` });
+      }
+    });
+    row.detectedLlrIds.forEach((llrId) => {
+      const llr = llrDefMap.get(llrId);
+      if (!llr) {
+        audits.push({ id: `matrix-llr-missing-${row.rowNumber}-${llrId}`, severity: 'Error', category: 'Matrix ID Missing Definition', rowNumber: row.rowNumber, llrId, sourceFile: row.sourceFile, message: `Matrix row ${row.rowNumber} references missing LLR definition ${llrId}.` });
+        return;
+      }
+      const missingHlrLinks = row.detectedHlrIds.filter((hlrId) => !llr.tracedHlrIds.includes(hlrId));
+      if (row.detectedHlrIds.length > 0 && missingHlrLinks.length > 0) {
+        audits.push({ id: `matrix-mismatch-${row.rowNumber}-${llrId}`, severity: 'Warning', category: 'Matrix Row HLR/LLR Mismatch', rowNumber: row.rowNumber, hlrId: missingHlrLinks[0], llrId, sourceFile: row.sourceFile, message: `Matrix row ${row.rowNumber} maps ${llrId} to HLR(s) not declared in its Traces-to line: ${missingHlrLinks.join(', ')}.` });
+      }
+    });
+  });
+
+  hlrs.forEach((hlr) => {
+    if (!matrixHlrs.has(hlr.id)) {
+      audits.push({ id: `hlr-missing-from-matrix-${hlr.id}`, severity: 'Warning', category: 'Definition Missing From Matrix', hlrId: hlr.id, sourceFile: hlr.sourceFile, message: `${hlr.id} is defined but missing from the traceability matrix.` });
+    }
+  });
+  llrs.forEach((llr) => {
+    if (!matrixLlrs.has(llr.id)) {
+      audits.push({ id: `llr-missing-from-matrix-${llr.id}`, severity: 'Warning', category: 'Definition Missing From Matrix', llrId: llr.id, sourceFile: llr.sourceFile, message: `${llr.id} is defined but missing from the traceability matrix.` });
+    }
+  });
+
+  return dedupeAudits(audits);
+}
+
+function dedupeAudits(audits: AuditItem[]): AuditItem[] {
+  const seen = new Set<string>();
+  return audits.filter((audit) => {
+    if (seen.has(audit.id)) return false;
+    seen.add(audit.id);
+    return true;
+  });
+}
+
+function buildWorkPackets(hlrs: HlrObject[], llrs: LlrObject[], matrixRows: MatrixRowObject[], audits: AuditItem[]): WorkPacket[] {
+  const domains = new Map<string, WorkPacket>();
+  const ensure = (domain: string): WorkPacket => {
+    const id = domain.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'general';
+    if (!domains.has(id)) domains.set(id, { id, label: labelDomain(domain), hlrIds: [], llrIds: [], rowNumbers: [], auditIds: [] });
+    return domains.get(id)!;
+  };
+
+  hlrs.forEach((hlr) => ensure(domainFor(hlr.id, hlr.sourceFile)).hlrIds.push(hlr.id));
+  llrs.forEach((llr) => ensure(domainFor(llr.id, llr.sourceFile)).llrIds.push(llr.id));
+  matrixRows.forEach((row) => {
+    const domain = domainFor(row.detectedHlrIds[0] || row.detectedLlrIds[0] || 'GENERAL', row.sourceFile);
+    ensure(domain).rowNumbers.push(row.rowNumber);
+  });
+  audits.forEach((audit) => {
+    const domain = domainFor(audit.hlrId || audit.llrId || audit.sourceFile || 'GENERAL', audit.sourceFile || '');
+    ensure(domain).auditIds.push(audit.id);
+  });
+
+  return Array.from(domains.values()).sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function domainFor(idOrPath: string, sourceFile: string): string {
+  const text = `${idOrPath} ${sourceFile}`.toLowerCase();
+  if (text.includes('target-io') || text.includes('target_io')) return 'target IO';
+  if (text.includes('witness')) return 'witness';
+  if (text.includes('math')) return 'math';
+  if (text.includes('replay')) return 'replay';
+  if (text.includes('runner')) return 'runner';
+  return 'general';
+}
+
+function labelDomain(domain: string): string {
+  if (domain.toLowerCase() === 'target io') return 'Target IO';
+  return domain.slice(0, 1).toUpperCase() + domain.slice(1);
 }
