@@ -4,7 +4,8 @@ import {
   MatrixRowObject, 
   EvidencePathObject, 
   GraphNode, 
-  GraphEdge 
+  GraphEdge,
+  NormalizedStatus,
 } from '../types';
 
 export interface ColumnarGraph {
@@ -13,6 +14,10 @@ export interface ColumnarGraph {
   rowNodes: GraphNode[];
   leafNodes: GraphNode[];
   edges: GraphEdge[];
+}
+
+function isImplementedLikeStatus(status: NormalizedStatus): boolean {
+  return status === 'implemented' || status === 'tested' || status === 'proof_partial';
 }
 
 export function buildNeighborhoodGraph(
@@ -97,7 +102,7 @@ export function buildNeighborhoodGraph(
 
       // Status filters
       if (filters.pendingOnly && status !== 'pending') return;
-      if (filters.implementedOnly && status !== 'implemented' && status !== 'verified') return;
+      if (filters.implementedOnly && !isImplementedLikeStatus(status)) return;
 
       hlrNodesMap.set(h.id, {
         id: h.id,
@@ -121,7 +126,7 @@ export function buildNeighborhoodGraph(
         const status = associatedRows.length > 0 ? associatedRows[0].normalizedStatus : 'unknown';
 
         if (filters.pendingOnly && status !== 'pending') return;
-        if (filters.implementedOnly && status !== 'implemented' && status !== 'verified') return;
+        if (filters.implementedOnly && !isImplementedLikeStatus(status)) return;
 
         llrNodesMap.set(l.id, {
           id: l.id,
@@ -138,7 +143,7 @@ export function buildNeighborhoodGraph(
     matrixRows.forEach(row => {
       if (focusedRowNumbers.has(row.rowNumber)) {
         if (filters.pendingOnly && row.normalizedStatus !== 'pending') return;
-        if (filters.implementedOnly && row.normalizedStatus !== 'implemented' && row.normalizedStatus !== 'verified') return;
+        if (filters.implementedOnly && !isImplementedLikeStatus(row.normalizedStatus)) return;
 
         rowNodesMap.set(`row-${row.rowNumber}`, {
           id: `row-${row.rowNumber}`,
@@ -155,7 +160,7 @@ export function buildNeighborhoodGraph(
     matrixRows.forEach(row => {
       if (focusedRowNumbers.has(row.rowNumber)) {
         if (filters.pendingOnly && row.normalizedStatus !== 'pending') return;
-        if (filters.implementedOnly && row.normalizedStatus !== 'implemented' && row.normalizedStatus !== 'verified') return;
+        if (filters.implementedOnly && !isImplementedLikeStatus(row.normalizedStatus)) return;
 
         // Add Evidence Paths
         row.detectedPaths.forEach(path => {

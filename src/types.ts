@@ -1,9 +1,10 @@
 export type NormalizedStatus =
   | 'implemented'
-  | 'verified'
+  | 'tested'
   | 'pending'
-  | 'partial'
-  | 'boundary'
+  | 'proof_partial'
+  | 'boundary_only'
+  | 'traced'
   | 'unknown'
   | 'untraced';
 

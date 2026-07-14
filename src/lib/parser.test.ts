@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { parseRepoSources, RawSourceFile } from './parser';
-import { RepoValidation, SourceFileStatus } from '../types';
+import { normalizeStatus, parseMatrix, parseRepoSources, RawSourceFile } from './parser';
+import { NormalizedStatus, RepoValidation, SourceFileStatus } from '../types';
 
 const requiredFiles = [
   'docs/normative/HLR_math.md',
@@ -133,5 +133,47 @@ const noExpectedSources = parseRepoSources({
   files: files.filter((file) => !file.path.includes('/HLR_')),
 });
 assert.ok(noExpectedSources.missingIds.some((missing) => missing.id === 'HLR-TARGET-IO-001' && missing.state === 'missing_from_repo'));
+
+const statusExamples: Array<[string, NormalizedStatus]> = [
+  ['Maps the fixed-point storage structure...', 'implemented'],
+  ['Defines the fractional scaling constant...', 'implemented'],
+  ['Establishes the current binary interoperability surface...', 'implemented'],
+  ['HLR-defined / LLR, implementation, and verification pending.', 'pending'],
+  ['Implementation and verification are pending.', 'pending'],
+  ['Neutral traceability text with no stronger status language.', 'traced'],
+  ['', 'unknown'],
+  ['Evidence-boundary row: this does not claim full coverage and excludes runtime proof.', 'boundary_only'],
+];
+
+statusExamples.forEach(([text, expected]) => {
+  assert.equal(normalizeStatus(text, { rowExists: expected === 'traced' }), expected);
+});
+
+const statusMatrix = parseMatrix([
+  '| HLR-MATH-REP-001 | LLR-MATH-REP-001 | Maps the fixed-point storage structure. |',
+  '| HLR-MATH-REP-002 | LLR-MATH-REP-002 | Defines the fractional scaling constant. |',
+  '| HLR-MATH-REP-003 | LLR-MATH-REP-003 | Establishes the current binary interoperability surface. |',
+  '| HLR-REPLAY-RETAINED-RUN-001 | LLR-REPLAY-011 | Implementation and verification are pending. |',
+  '| HLR-TRACE-NEUTRAL-001 | LLR-TRACE-NEUTRAL-001 | Neutral traceability text. |',
+  '| HLR-BOUNDARY-001 | LLR-BOUNDARY-001 | Evidence-boundary row excludes broader behavior. |',
+].join('\n'), 'docs/normative/traceability_matrix.md');
+
+assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-MATH-REP-001'))?.normalizedStatus, 'implemented');
+assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-MATH-REP-002'))?.normalizedStatus, 'implemented');
+assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-MATH-REP-003'))?.normalizedStatus, 'implemented');
+assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-REPLAY-RETAINED-RUN-001'))?.normalizedStatus, 'pending');
+assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-TRACE-NEUTRAL-001'))?.normalizedStatus, 'traced');
+assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-BOUNDARY-001'))?.normalizedStatus, 'boundary_only');
+
+const untracedResults = parseRepoSources({
+  validation,
+  sourceFiles: [statusFor('docs/normative/HLR_math.md'), statusFor('docs/normative/traceability_matrix.md')],
+  files: [
+    { path: 'docs/normative/HLR_math.md', required: true, content: '### HLR-NO-MATRIX-001\nNo matrix row.' },
+    { path: 'docs/normative/traceability_matrix.md', required: true, content: '| Requirement | LLR | Status |\n| --- | --- | --- |' },
+  ],
+});
+const untracedStatus = untracedResults.matrixRows.find((row) => row.detectedHlrIds.includes('HLR-NO-MATRIX-001'))?.normalizedStatus || 'untraced';
+assert.equal(untracedStatus, 'untraced');
 
 console.log('parser tests passed');

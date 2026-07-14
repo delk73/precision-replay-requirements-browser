@@ -37,19 +37,65 @@ export function extractIds(text: string, pattern: RegExp): string[] {
   return Array.from(new Set(matches.map((id) => id.toUpperCase())));
 }
 
-export function normalizeStatus(rawStatusText: string): NormalizedStatus {
+export function normalizeStatus(rawStatusText: string, options: { rowExists?: boolean } = {}): NormalizedStatus {
   const clean = rawStatusText.trim().toLowerCase();
   if (!clean) return 'unknown';
-  if (clean.includes('verified') || clean.includes('verification passed') || clean.includes('retained proof') || clean.includes('retained check') || clean.includes('artifact pass')) {
-    return 'verified';
+
+  if (clean.includes('pending') || clean.includes('remain pending') || clean.includes('deferred')) {
+    return 'pending';
   }
-  if (clean.includes('implemented') || clean.includes('traced')) return 'implemented';
-  if (clean.includes('pending')) return 'pending';
-  if (clean.includes('partial') || clean.includes('bounded') || clean.includes('limited') || clean.includes('initial-only')) return 'partial';
-  if (clean.includes('boundary') || clean.includes('not credited') || clean.includes('does not implement') || clean.includes('excludes') || clean.includes('remains separate')) {
-    return 'boundary';
+
+  if (
+    clean.includes('tested') ||
+    clean.includes('covers') ||
+    clean.includes('black-box covers') ||
+    clean.includes('pytest') ||
+    clean.includes('cargo test') ||
+    clean.includes('verified') ||
+    clean.includes('verification passed') ||
+    clean.includes('retained check') ||
+    clean.includes('artifact pass')
+  ) {
+    return 'tested';
   }
-  return 'unknown';
+
+  if (
+    clean.includes('active partial proof') ||
+    clean.includes('bounded') ||
+    clean.includes('svcp') ||
+    clean.includes('kani') ||
+    clean.includes('partial') ||
+    clean.includes('limited') ||
+    clean.includes('initial-only')
+  ) {
+    return 'proof_partial';
+  }
+
+  if (
+    clean.includes('evidence-boundary') ||
+    clean.includes('boundary') ||
+    clean.includes('does not claim') ||
+    clean.includes('excludes') ||
+    clean.includes('not credited') ||
+    clean.includes('does not implement') ||
+    clean.includes('remains separate')
+  ) {
+    return 'boundary_only';
+  }
+
+  if (
+    clean.includes('implemented') ||
+    clean.includes('implementation-traced') ||
+    clean.includes('provides') ||
+    clean.includes('defines') ||
+    clean.includes('maps') ||
+    clean.includes('establishes') ||
+    clean.includes('traced')
+  ) {
+    return 'implemented';
+  }
+
+  return options.rowExists ? 'traced' : 'unknown';
 }
 
 export function guessPathType(pathText: string): EvidencePathObject['typeGuess'] {
@@ -136,8 +182,11 @@ export function parseMatrix(rawText: string, filename: string): { rows: MatrixRo
     if (detectedHlrIds.length === 0 && detectedLlrIds.length === 0) return;
 
     const detectedPaths = extractPaths(rowText);
-    const statusCell = cells.find((cell) => normalizeStatus(cell) !== 'unknown') ?? '';
-    const normalizedStatus = normalizeStatus(statusCell || rowText);
+    const statusCell = cells.find((cell) => {
+      const status = normalizeStatus(cell);
+      return status !== 'unknown' && status !== 'traced';
+    }) ?? '';
+    const normalizedStatus = statusCell ? normalizeStatus(statusCell) : normalizeStatus(rowText, { rowExists: true });
 
     rows.push({
       rowNumber,

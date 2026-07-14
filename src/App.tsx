@@ -52,14 +52,16 @@ function statusClass(status: NormalizedStatus): string {
   switch (status) {
     case 'implemented':
       return 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30';
-    case 'verified':
+    case 'tested':
       return 'bg-teal-500/10 text-teal-300 border-teal-500/30';
     case 'pending':
       return 'bg-amber-500/10 text-amber-300 border-amber-500/30';
-    case 'partial':
+    case 'proof_partial':
       return 'bg-sky-500/10 text-sky-300 border-sky-500/30';
-    case 'boundary':
+    case 'boundary_only':
       return 'bg-fuchsia-500/10 text-fuchsia-300 border-fuchsia-500/30';
+    case 'traced':
+      return 'bg-blue-500/10 text-blue-300 border-blue-500/30';
     case 'untraced':
       return 'bg-rose-500/10 text-rose-300 border-rose-500/30';
     default:
