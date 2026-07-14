@@ -32,6 +32,7 @@ const EMPTY_RESULTS: ParseResults = {
 
 type Tab = 'requirements' | 'trace' | 'audit' | 'work';
 type DiffFilter = 'all' | 'added' | 'removed' | 'changed' | 'status_changed';
+type RequirementSummary = ReturnType<typeof summarizeRequirement>;
 
 const DEFAULT_REPO_URL = 'https://github.com/delk73/precision-replay.git';
 const DEFAULT_REF = 'main';
@@ -484,7 +485,7 @@ export default function App() {
             )}
             {activeTab === 'trace' && <TraceView graph={graph} activeRow={activeRow} />}
             {activeTab === 'audit' && <AuditView groups={auditGroups} onFocus={selectRequirement} onRowFocus={(row) => { setSelectedRow(row); setActiveTab('requirements'); }} />}
-            {activeTab === 'work' && <WorkPacketView results={results} onFocus={selectRequirement} />}
+            {activeTab === 'work' && <WorkPacketView results={results} requirements={requirements} onFocus={selectRequirement} />}
           </div>
         </section>
       </main>
@@ -569,7 +570,7 @@ function buildDiffLabels(results: ParseResults, fallbackBase: string, fallbackCo
   };
 }
 
-function summarizeDelta(delta: ComparisonDelta) {
+function summarizeDelta(delta: ComparisonDelta): RequirementSummary {
   return {
     id: delta.id,
     kind: delta.kind as RequirementKind,
@@ -808,19 +809,23 @@ function AuditView({ groups, onFocus, onRowFocus }: { groups: Record<string, Aud
   );
 }
 
-function WorkPacketView({ results, onFocus }: { results: ParseResults; onFocus: (id: string, kind: RequirementKind) => void }) {
+function WorkPacketView({ results, requirements, onFocus }: { results: ParseResults; requirements: RequirementSummary[]; onFocus: (id: string, kind: RequirementKind) => void }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      {results.workPackets.map((packet) => (
-        <section key={packet.id} className="rounded border border-slate-800 bg-[#111419] p-4">
-          <h3 className="text-base font-semibold">{packet.label}</h3>
-          <p className="mt-1 text-xs text-slate-500">{packet.hlrIds.length} HLR / {packet.llrIds.length} LLR / {packet.rowNumbers.length} rows / {packet.auditIds.length} audits</p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {packet.hlrIds.slice(0, 16).map((id) => <button key={id} type="button" onClick={() => onFocus(id, 'hlr')} className="rounded border border-slate-700 px-2 py-1 font-mono text-xs hover:border-sky-500">{id}</button>)}
-            {packet.llrIds.slice(0, 16).map((id) => <button key={id} type="button" onClick={() => onFocus(id, 'llr')} className="rounded border border-slate-700 px-2 py-1 font-mono text-xs hover:border-sky-500">{id}</button>)}
-          </div>
-        </section>
-      ))}
+      {results.workPackets.map((packet) => {
+        const packetRequirements = requirements.filter((req) => (
+          req.kind === 'hlr' ? packet.hlrIds.includes(req.id) : packet.llrIds.includes(req.id)
+        ));
+        return (
+          <section key={packet.id} className="rounded border border-slate-800 bg-[#111419] p-4">
+            <h3 className="text-base font-semibold">{packet.label}</h3>
+            <p className="mt-1 text-xs text-slate-500">{packet.hlrIds.length} HLR / {packet.llrIds.length} LLR / {packet.rowNumbers.length} rows / {packet.auditIds.length} audits</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {packetRequirements.slice(0, 32).map((req) => <button key={`${req.kind}-${req.id}`} type="button" onClick={() => onFocus(req.id, req.kind)} className="rounded border border-slate-700 px-2 py-1 font-mono text-xs hover:border-sky-500">{req.id}</button>)}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }
