@@ -29,7 +29,6 @@ const EMPTY_RESULTS: ParseResults = {
 };
 
 type Tab = 'requirements' | 'trace' | 'audit' | 'work';
-type SourceMode = 'github_snapshot' | 'local';
 type DiffFilter = 'all' | 'added' | 'removed' | 'changed' | 'status_changed';
 
 const DEFAULT_REPO_URL = 'https://github.com/delk73/precision-replay.git';
@@ -76,14 +75,12 @@ function domainFrom(id: string, sourceFile = ''): string {
 }
 
 export default function App() {
-  const [sourceMode, setSourceMode] = useState<SourceMode>((localStorage.getItem('precision_replay_source_mode') as SourceMode) || 'github_snapshot');
   const [repoUrl, setRepoUrl] = useState(localStorage.getItem('precision_replay_repo_url') || DEFAULT_REPO_URL);
   const [repoRef, setRepoRef] = useState(localStorage.getItem('precision_replay_repo_ref') || DEFAULT_REF);
   const [compareEnabled, setCompareEnabled] = useState(localStorage.getItem('precision_replay_compare_enabled') === 'true');
   const [compareRef, setCompareRef] = useState(localStorage.getItem('precision_replay_compare_ref') || '');
   const [diffFilter, setDiffFilter] = useState<DiffFilter>('all');
   const [diffFilterTouched, setDiffFilterTouched] = useState(false);
-  const [repoPath, setRepoPath] = useState(localStorage.getItem('precision_replay_repo_path') || '');
   const [branches, setBranches] = useState<string[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [branchesError, setBranchesError] = useState<string | null>(null);
@@ -140,23 +137,15 @@ export default function App() {
     setLoading(true);
     setLoadError(null);
     try {
-      const params = new URLSearchParams({ mode: sourceMode });
-      if (sourceMode === 'github_snapshot') {
-        params.set('repoUrl', repoUrl);
-        params.set('ref', repoRef);
-        if (compareEnabled && compareRef && compareRef !== repoRef) params.set('compareRef', compareRef);
-      } else {
-        params.set('repoPath', repoPath);
-      }
+      const params = new URLSearchParams({ mode: 'github_snapshot', repoUrl, ref: repoRef });
+      if (compareEnabled && compareRef && compareRef !== repoRef) params.set('compareRef', compareRef);
       const response = await fetch(`/api/scan?${params.toString()}`);
       const body = (await response.json()) as ParseResults;
       setResults(body);
-      localStorage.setItem('precision_replay_source_mode', sourceMode);
       localStorage.setItem('precision_replay_repo_url', repoUrl);
       localStorage.setItem('precision_replay_repo_ref', repoRef);
       localStorage.setItem('precision_replay_compare_enabled', String(compareEnabled));
       localStorage.setItem('precision_replay_compare_ref', compareRef);
-      localStorage.setItem('precision_replay_repo_path', repoPath);
       const first = body.hlrs[0] || body.llrs[0];
       if (first && !body.hlrs.some((h) => h.id === selectedId) && !body.llrs.some((l) => l.id === selectedId)) {
         setSelectedId(first.id);
@@ -170,10 +159,9 @@ export default function App() {
     }
   };
 
-  const comparisonRequested = sourceMode === 'github_snapshot' && compareEnabled && compareRef && compareRef !== repoRef;
+  const comparisonRequested = compareEnabled && compareRef && compareRef !== repoRef;
 
   const loadBranches = async () => {
-    if (sourceMode !== 'github_snapshot') return;
     setBranchesLoading(true);
     setBranchesError(null);
     try {
@@ -209,18 +197,20 @@ export default function App() {
 
   useEffect(() => {
     void loadBranches();
-    // Branch population is refreshed when the source mode or repo URL changes.
+    // Branch population is refreshed when the repo URL changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceMode, repoUrl]);
+  }, [repoUrl]);
 
   useEffect(() => {
-    if (compareEnabled && !diffFilterTouched) {
+    if (results.comparison && !diffFilterTouched) {
       setDiffFilter('changed');
     }
-    if (!compareEnabled && !diffFilterTouched) {
+    if (!results.comparison && !diffFilterTouched) {
       setDiffFilter('all');
     }
-  }, [compareEnabled, diffFilterTouched]);
+  }, [results.comparison, diffFilterTouched]);
+
+  const activeDiffFilter = results.comparison ? diffFilter : 'all';
 
   const requirements = useMemo(() => {
     const rows = results.matrixRows;
@@ -228,18 +218,18 @@ export default function App() {
       ...results.hlrs.map((req) => summarizeRequirement(req, rows)),
       ...results.llrs.map((req) => summarizeRequirement(req, rows)),
     ];
-    const combined = diffFilter === 'all'
+    const combined = activeDiffFilter === 'all'
       ? baseRequirements
       : (results.comparison?.deltas || [])
         .filter((delta) => delta.kind === 'hlr' || delta.kind === 'llr')
-        .filter((delta) => delta.change === diffFilter)
+        .filter((delta) => delta.change === activeDiffFilter)
         .map((delta) => summarizeDelta(delta));
     const needle = searchQuery.trim().toLowerCase();
     return combined.filter((req) => {
       if (!needle) return true;
       return `${req.id} ${req.title} ${req.sourceFile}`.toLowerCase().includes(needle);
     });
-  }, [results, searchQuery, diffFilter]);
+  }, [results, searchQuery, activeDiffFilter]);
 
   useEffect(() => {
     if (requirements.length === 0) {
@@ -261,10 +251,10 @@ export default function App() {
     const baseRequirement = selectedKind === 'hlr'
       ? results.hlrs.find((h) => h.id === selectedId) || null
       : results.llrs.find((l) => l.id === selectedId) || null;
-    if (baseRequirement || diffFilter === 'all') return baseRequirement;
+    if (baseRequirement || activeDiffFilter === 'all') return baseRequirement;
     const delta = results.comparison?.deltas.find((item) => item.id === selectedId && item.kind === selectedKind);
     return delta ? deltaToRequirement(delta) : null;
-  }, [results, selectedId, selectedKind]);
+  }, [results, selectedId, selectedKind, activeDiffFilter]);
 
   const selectedRows = useMemo(() => {
     return results.matrixRows.filter((row) =>
@@ -327,85 +317,55 @@ export default function App() {
             <p className="text-xs text-slate-400">Fresh precision-replay snapshot by default. Truth comes only from parsed repo files at the resolved SHA.</p>
           </div>
           <div className="grid gap-2 lg:min-w-[46rem]">
-            <div className="inline-flex rounded border border-slate-700 bg-[#0A0B0E] p-1 text-xs">
-              <button
-                type="button"
-                onClick={() => setSourceMode('github_snapshot')}
-                className={`rounded px-3 py-1.5 ${sourceMode === 'github_snapshot' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}
-              >
-                Fresh GitHub Snapshot
-              </button>
-              <button
-                type="button"
-                onClick={() => setSourceMode('local')}
-                className={`rounded px-3 py-1.5 ${sourceMode === 'local' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'}`}
-              >
-                Local Checkout
-              </button>
-            </div>
-            {sourceMode === 'github_snapshot' ? (
-              <>
-                <div className="grid gap-2 sm:grid-cols-[minmax(18rem,1fr)_minmax(12rem,18rem)_auto]">
-                  <input
-                    value={repoUrl}
-                    onChange={(event) => setRepoUrl(event.target.value)}
-                    className="w-full rounded border border-slate-700 bg-[#0A0B0E] px-3 py-2 font-mono text-xs text-slate-200 outline-none focus:border-sky-500"
-                    aria-label="GitHub repository URL"
-                  />
-                  <label className="grid gap-1">
-                    <span className="text-[10px] uppercase text-slate-500">Base branch</span>
-                    <select
-                      value={repoRef}
-                      onChange={(event) => setRepoRef(event.target.value)}
-                      className="w-full rounded border border-slate-700 bg-[#0A0B0E] px-3 py-2 font-mono text-xs text-slate-200 outline-none focus:border-sky-500"
-                      aria-label="Base branch"
-                      disabled={branchesLoading}
-                    >
-                      {!branches.includes(repoRef) && <option value={repoRef}>{repoRef}</option>}
-                      {branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
-                    </select>
-                  </label>
-                  <ScanButton loading={loading} scan={scan} />
-                </div>
-                <div className="grid gap-2 sm:grid-cols-[auto_minmax(12rem,1fr)]">
-                  <label className="inline-flex items-center gap-2 text-xs text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={compareEnabled}
-                      onChange={(event) => setCompareEnabled(event.target.checked)}
-                      className="h-4 w-4 accent-sky-500"
-                    />
-                    Compare branch
-                  </label>
-                  {compareEnabled && (
-                    <label className="grid gap-1">
-                      <span className="text-[10px] uppercase text-slate-500">Compare against</span>
-                      <select
-                        value={compareRef}
-                        onChange={(event) => setCompareRef(event.target.value)}
-                        className="w-full rounded border border-slate-700 bg-[#0A0B0E] px-3 py-2 font-mono text-xs text-slate-200 outline-none focus:border-sky-500"
-                        aria-label="Compare against branch"
-                        disabled={branchesLoading}
-                      >
-                        {!branches.includes(compareRef) && compareRef && <option value={compareRef}>{compareRef}</option>}
-                        {branches.filter((branch) => branch !== repoRef).map((branch) => <option key={branch} value={branch}>{branch}</option>)}
-                      </select>
-                    </label>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                <input
-                  value={repoPath}
-                  onChange={(event) => setRepoPath(event.target.value)}
-                  placeholder="Local precision-replay checkout path"
+            <div className="text-[10px] font-semibold uppercase text-sky-300">Fresh GitHub snapshot</div>
+            <div className="grid gap-2 sm:grid-cols-[minmax(18rem,1fr)_minmax(12rem,18rem)_auto]">
+              <input
+                value={repoUrl}
+                onChange={(event) => setRepoUrl(event.target.value)}
+                className="w-full rounded border border-slate-700 bg-[#0A0B0E] px-3 py-2 font-mono text-xs text-slate-200 outline-none focus:border-sky-500"
+                aria-label="GitHub repository URL"
+              />
+              <label className="grid gap-1">
+                <span className="text-[10px] uppercase text-slate-500">Base branch</span>
+                <select
+                  value={repoRef}
+                  onChange={(event) => setRepoRef(event.target.value)}
                   className="w-full rounded border border-slate-700 bg-[#0A0B0E] px-3 py-2 font-mono text-xs text-slate-200 outline-none focus:border-sky-500"
-                  aria-label="Local precision-replay checkout path"
+                  aria-label="Base branch"
+                  disabled={branchesLoading}
+                >
+                  {!branches.includes(repoRef) && <option value={repoRef}>{repoRef}</option>}
+                  {branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+                </select>
+              </label>
+              <ScanButton loading={loading} scan={scan} />
+            </div>
+            <div className="grid gap-2 sm:grid-cols-[auto_minmax(12rem,1fr)]">
+              <label className="inline-flex items-center gap-2 text-xs text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={compareEnabled}
+                  onChange={(event) => setCompareEnabled(event.target.checked)}
+                  className="h-4 w-4 accent-sky-500"
                 />
-                <ScanButton loading={loading} scan={scan} />
-              </div>
-            )}
+                Compare branch
+              </label>
+              {compareEnabled && (
+                <label className="grid gap-1">
+                  <span className="text-[10px] uppercase text-slate-500">Compare against</span>
+                  <select
+                    value={compareRef}
+                    onChange={(event) => setCompareRef(event.target.value)}
+                    className="w-full rounded border border-slate-700 bg-[#0A0B0E] px-3 py-2 font-mono text-xs text-slate-200 outline-none focus:border-sky-500"
+                    aria-label="Compare against branch"
+                    disabled={branchesLoading}
+                  >
+                    {!branches.includes(compareRef) && compareRef && <option value={compareRef}>{compareRef}</option>}
+                    {branches.filter((branch) => branch !== repoRef).map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+                  </select>
+                </label>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -428,8 +388,8 @@ export default function App() {
               </div>
               <SourceSummary results={results} />
               <ComparisonStatus results={results} requested={Boolean(comparisonRequested)} />
-              {branchesError && sourceMode === 'github_snapshot' && <p className="mt-1 text-amber-200">Branch list unavailable: {branchesError}</p>}
-              {branchesLoading && sourceMode === 'github_snapshot' && <p className="mt-1 text-slate-400">Loading branches...</p>}
+              {branchesError && <p className="mt-1 text-amber-200">Branch list unavailable: {branchesError}</p>}
+              {branchesLoading && <p className="mt-1 text-slate-400">Loading branches...</p>}
               <p className="mt-2 text-slate-400">Required files loaded: {loadedRequired} / {totalRequired || 9}</p>
               {[...results.validation.errors, ...results.validation.warnings, ...(loadError ? [loadError] : [])].map((item) => (
                 <p key={item} className="mt-1 text-amber-200">{item}</p>
@@ -448,7 +408,7 @@ export default function App() {
               <label className="mt-2 block">
                 <span className="mb-1 block text-[10px] uppercase text-slate-500">Diff filter</span>
                 <select
-                  value={diffFilter}
+                  value={activeDiffFilter}
                   onChange={(event) => {
                     setDiffFilterTouched(true);
                     setDiffFilter(event.target.value as DiffFilter);
@@ -503,7 +463,7 @@ export default function App() {
           </nav>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-5">
-            {activeTab === 'requirements' && requirements.length === 0 && diffFilter !== 'all' ? (
+            {activeTab === 'requirements' && requirements.length === 0 && activeDiffFilter !== 'all' ? (
               <EmptyState
                 title={results.comparison ? 'No matching diff requirements' : 'Comparison not scanned'}
                 body={results.comparison ? 'This diff filter has no parsed HLR or LLR matches.' : 'Click Scan to load comparison data before browsing a diff subset.'}
@@ -546,16 +506,13 @@ function ScanButton({ loading, scan }: { loading: boolean; scan: () => Promise<v
 
 function SourceSummary({ results }: { results: ParseResults }) {
   const validation = results.validation;
-  if (validation.sourceMode === 'github_snapshot') {
-    return (
-      <div className="mt-2 space-y-1 text-slate-400">
-        <p>Mode: GitHub snapshot</p>
-        <p className="break-all font-mono text-[10px]">{validation.repoUrl || DEFAULT_REPO_URL}@{validation.ref || DEFAULT_REF}</p>
-        {validation.resolvedSha && <p className="break-all font-mono text-[10px]">SHA {validation.resolvedSha}</p>}
-      </div>
-    );
-  }
-  return <p className="mt-2 break-all font-mono text-[10px] text-slate-400">{validation.repoPath}</p>;
+  return (
+    <div className="mt-2 space-y-1 text-slate-400">
+      <p>Mode: GitHub snapshot</p>
+      <p className="break-all font-mono text-[10px]">{validation.repoUrl || DEFAULT_REPO_URL}@{validation.ref || DEFAULT_REF}</p>
+      {validation.resolvedSha && <p className="break-all font-mono text-[10px]">SHA {validation.resolvedSha}</p>}
+    </div>
+  );
 }
 
 function ComparisonStatus({ results, requested }: { results: ParseResults; requested: boolean }) {
