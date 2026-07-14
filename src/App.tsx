@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { AuditItem, ComparisonDelta, HlrObject, LlrObject, MatrixRowObject, NormalizedStatus, ParseResults, RequirementKind } from './types';
 import { buildNeighborhoodGraph } from './lib/graph';
+import { tokenizeRequirementText } from './lib/textTinting';
 
 const EMPTY_RESULTS: ParseResults = {
   validation: { ok: false, repoPath: '', sourceMode: 'github_snapshot', warnings: [], errors: ['No precision-replay snapshot loaded.'] },
@@ -654,7 +655,7 @@ function RequirementDetail({
             <p><span className="text-slate-500">Source:</span> <span className="font-mono">{requirement.sourceFile}</span></p>
             <p><span className="text-slate-500">Line:</span> <span className="font-mono">{requirement.sourceLine}</span></p>
           </div>
-          <pre className="mt-4 max-h-72 overflow-auto rounded border border-slate-800 bg-[#0A0B0E] p-4 whitespace-pre-wrap text-xs text-slate-300">{requirement.text}</pre>
+          <pre className="mt-4 max-h-72 overflow-auto rounded border border-slate-800 bg-[#0A0B0E] p-4 whitespace-pre-wrap text-xs text-slate-300"><TintedRequirementText text={requirement.text} /></pre>
         </section>
 
         <section className="rounded border border-slate-800 bg-[#111419] p-5">
@@ -695,6 +696,16 @@ function RequirementDetail({
         </section>
       </aside>
     </div>
+  );
+}
+
+function TintedRequirementText({ text }: { text: string }) {
+  return (
+    <>
+      {tokenizeRequirementText(text).map((token, index) => token.className
+        ? <span key={index} className={token.className}>{token.text}</span>
+        : <React.Fragment key={index}>{token.text}</React.Fragment>)}
+    </>
   );
 }
 
