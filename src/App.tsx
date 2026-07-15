@@ -324,6 +324,10 @@ export default function App() {
     return results.matrixRows.find((row) => row.rowNumber === selectedRow) || selectedRows[0] || null;
   }, [results.matrixRows, selectedRow, selectedRows]);
 
+  const selectedComparisonDelta = useMemo(() => {
+    return results.comparison?.deltas.find((delta) => delta.id === selectedId && delta.kind === selectedKind) || null;
+  }, [results.comparison, selectedId, selectedKind]);
+
   const graph = useMemo(
     () =>
       buildNeighborhoodGraph(selectedId, selectedKind, results.hlrs, results.llrs, results.matrixRows, {
@@ -536,6 +540,8 @@ export default function App() {
                 requirement={selectedRequirement}
                 rows={selectedRows}
                 activeRow={activeRow}
+                comparisonDelta={selectedComparisonDelta}
+                hasComparison={Boolean(results.comparison)}
                 linkContext={results.validation}
                 linkedHlrs={linkedHlrs}
                 linkedLlrs={linkedLlrs}
@@ -693,6 +699,8 @@ function RequirementDetail({
   requirement,
   rows,
   activeRow,
+  comparisonDelta,
+  hasComparison,
   linkContext,
   linkedHlrs,
   linkedLlrs,
@@ -703,6 +711,8 @@ function RequirementDetail({
   requirement: HlrObject | LlrObject | null;
   rows: MatrixRowObject[];
   activeRow: MatrixRowObject | null;
+  comparisonDelta: ComparisonDelta | null;
+  hasComparison: boolean;
   linkContext: MatrixRowLinkContext;
   linkedHlrs: HlrObject[];
   linkedLlrs: LlrObject[];
@@ -718,6 +728,10 @@ function RequirementDetail({
   const requirementEvidencePaths = Array.from(new Set(rows.flatMap((row) => row.detectedPaths)));
   const requirementStatus = strongestStatus(rows.map((row) => row.normalizedStatus));
   const showTestedWithoutEvidenceWarning = requirementStatus === 'tested' && requirementEvidencePaths.length === 0;
+  const statusSources = rows.filter((row) => row.normalizedStatus === requirementStatus);
+  const statusSourceRows = statusSources.length > 0 ? statusSources : rows;
+  const activeRowStatusDiffers = Boolean(activeRow && activeRow.normalizedStatus !== requirementStatus);
+  const hasMixedStatuses = new Set(rows.map((row) => row.normalizedStatus)).size > 1;
 
   return (
     <div
@@ -783,8 +797,20 @@ function RequirementDetail({
 
       <aside className="space-y-5 pl-5">
         <LinkedRequirements linkedHlrs={linkedHlrs} linkedLlrs={linkedLlrs} requirement={requirement} />
+        <TraceSummary
+          requirementStatus={requirementStatus}
+          statusSourceRows={statusSourceRows}
+          activeRow={activeRow}
+          requirementEvidencePaths={requirementEvidencePaths}
+          comparisonDelta={comparisonDelta}
+          hasComparison={hasComparison}
+          showTestedWithoutEvidenceWarning={showTestedWithoutEvidenceWarning}
+          hasMixedStatuses={hasMixedStatuses}
+          activeRowStatusDiffers={activeRowStatusDiffers}
+        />
         <section className="rounded border border-slate-800 bg-[#111419] p-4">
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold"><FileCode className="h-4 w-4" /> Requirement Evidence</h3>
+          <p className="mb-3 text-xs text-slate-500">Includes paths from all linked rows.</p>
           {requirementEvidencePaths.length > 0 ? (
             <div className="space-y-2">
               {requirementEvidencePaths.map((path) => <p key={path} className="break-all rounded border border-slate-800 bg-[#0A0B0E] p-2 font-mono text-xs text-slate-300">{path}</p>)}
@@ -797,6 +823,7 @@ function RequirementDetail({
         </section>
         <section className="rounded border border-slate-800 bg-[#111419] p-4">
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold"><FileCode className="h-4 w-4" /> Active Row Evidence</h3>
+          <p className="mb-3 text-xs text-slate-500">Includes only {activeRow ? `Row ${activeRow.rowNumber}` : 'the active row'}.</p>
           {activeRowPaths.length ? (
             <div className="space-y-2">
               {activeRowPaths.map((path) => <p key={path} className="break-all rounded border border-slate-800 bg-[#0A0B0E] p-2 font-mono text-xs text-slate-300">{path}</p>)}
@@ -853,6 +880,64 @@ function LinkedRequirements({ linkedHlrs, linkedLlrs, requirement }: { linkedHlr
       )}
     </section>
   );
+}
+
+function TraceSummary({
+  requirementStatus,
+  statusSourceRows,
+  activeRow,
+  requirementEvidencePaths,
+  comparisonDelta,
+  hasComparison,
+  showTestedWithoutEvidenceWarning,
+  hasMixedStatuses,
+  activeRowStatusDiffers,
+}: {
+  requirementStatus: NormalizedStatus;
+  statusSourceRows: MatrixRowObject[];
+  activeRow: MatrixRowObject | null;
+  requirementEvidencePaths: string[];
+  comparisonDelta: ComparisonDelta | null;
+  hasComparison: boolean;
+  showTestedWithoutEvidenceWarning: boolean;
+  hasMixedStatuses: boolean;
+  activeRowStatusDiffers: boolean;
+}) {
+  const statusRowText = statusSourceRows.length === 1 ? '1 matrix row' : `${statusSourceRows.length} matrix rows`;
+  const evidenceSummary = requirementEvidencePaths.length > 0 ? requirementEvidencePaths.join(', ') : 'none parsed';
+  const compareSummary = hasComparison ? comparisonLabel(comparisonDelta?.change) : 'not scanned';
+  const activeStatusSource = activeRow?.statusSource === 'explicit' ? `Explicit Status: ${activeRow.normalizedStatus} in active row.` : null;
+  return (
+    <section className="rounded border border-slate-800 bg-[#111419] p-4">
+      <h3 className="mb-3 text-sm font-semibold">Trace Summary</h3>
+      <div className="space-y-1 text-xs text-slate-400">
+        <p><span className="text-slate-500">Status:</span> <span className={`rounded border px-1.5 py-0.5 text-[10px] uppercase ${statusClass(requirementStatus)}`}>{requirementStatus}</span> <span>from {statusRowText}</span></p>
+        <p className="break-words"><span className="text-slate-500">Evidence:</span> <span className="font-mono">{evidenceSummary}</span></p>
+        <p><span className="text-slate-500">Active row:</span> <span className="font-mono">{activeRow ? `Row ${activeRow.rowNumber}` : 'none'}</span></p>
+        <p><span className="text-slate-500">Compare:</span> <span className="font-mono">{compareSummary}</span></p>
+      </div>
+      <div className="mt-3 space-y-1 text-xs">
+        <p className="text-slate-500">{activeStatusSource || 'Status comes from strongest linked matrix row.'}</p>
+        {showTestedWithoutEvidenceWarning && <p className="text-amber-200">Tested status has no parsed evidence path.</p>}
+        {hasMixedStatuses && <p className="text-amber-200">Requirement has multiple rows with different statuses.</p>}
+        {activeRowStatusDiffers && <p className="text-amber-200">Active row differs from requirement strongest status.</p>}
+      </div>
+    </section>
+  );
+}
+
+function comparisonLabel(change?: ComparisonDelta['change']): string {
+  switch (change) {
+    case 'added':
+      return 'only in compare';
+    case 'removed':
+      return 'only in base';
+    case 'changed':
+    case 'status_changed':
+      return 'changed';
+    default:
+      return 'unchanged';
+  }
 }
 
 function MatrixRowOrdinal({ row, compact = false }: { row: MatrixRowObject; compact?: boolean }) {
