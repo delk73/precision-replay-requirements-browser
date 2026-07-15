@@ -731,9 +731,11 @@ function RequirementDetail({
             <h2 className="text-xl font-semibold">{requirement.id}</h2>
           </div>
           <p className="mt-2 text-slate-300">{requirement.title}</p>
-          <div className="mt-4 grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
-            <p><span className="text-slate-500">Source:</span> <span className="font-mono">{requirement.sourceFile}</span></p>
-            <p><span className="text-slate-500">Line:</span> <span className="font-mono">{requirement.sourceLine}</span></p>
+          <div className="mt-4 text-xs text-slate-400">
+            <p>
+              <span className="text-slate-500">Source:</span>{' '}
+              <SourceLocation sourceFile={requirement.sourceFile} sourceLine={requirement.sourceLine} linkContext={linkContext} />
+            </p>
           </div>
           <pre className="mt-4 max-h-72 overflow-auto rounded border border-slate-800 bg-[#0A0B0E] p-4 whitespace-pre-wrap text-xs text-slate-300"><TintedRequirementText text={requirement.text} /></pre>
         </section>
@@ -858,8 +860,12 @@ function MatrixRowOrdinal({ row, compact = false }: { row: MatrixRowObject; comp
 }
 
 function MatrixRowSource({ row, linkContext }: { row: MatrixRowObject; linkContext: MatrixRowLinkContext }) {
-  const sourceLabel = `${basename(row.sourceFile)}:${row.sourceLine}`;
-  const href = githubBlobUrl(linkContext, row.sourceFile, row.sourceLine);
+  return <SourceLocation sourceFile={row.sourceFile} sourceLine={row.sourceLine} linkContext={linkContext} />;
+}
+
+function SourceLocation({ sourceFile, sourceLine, linkContext }: { sourceFile: string; sourceLine: number; linkContext: MatrixRowLinkContext }) {
+  const sourceLabel = `${basename(sourceFile)}:${sourceLine}`;
+  const href = githubBlobUrl(linkContext, sourceFile, sourceLine);
   return href ? (
     <a href={href} target="_blank" rel="noreferrer" className="font-mono text-sky-300 underline decoration-sky-500/40 underline-offset-2 hover:text-sky-200">
       {sourceLabel}
