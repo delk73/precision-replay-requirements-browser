@@ -1,7 +1,8 @@
 {
-  "name": "react-example",
+  "name": "precision-replay-requirements-browser",
   "private": true,
   "version": "0.0.0",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -12,7 +13,6 @@
     "test": "tsx src/lib/run-tests.ts"
   },
   "dependencies": {
-    "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "lucide-react": "^0.546.0",
