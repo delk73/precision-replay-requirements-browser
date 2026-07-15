@@ -6,6 +6,7 @@ import {
   GraphEdge,
   NormalizedStatus,
 } from '../types';
+import { strongestStatus } from './status';
 
 export interface ColumnarGraph {
   hlrNodes: GraphNode[];
@@ -15,7 +16,7 @@ export interface ColumnarGraph {
   edges: GraphEdge[];
 }
 
-function isImplementedLikeStatus(status: NormalizedStatus): boolean {
+function isEvidenceBearingStatus(status: NormalizedStatus): boolean {
   return status === 'implemented' || status === 'tested' || status === 'proof_partial';
 }
 
@@ -30,7 +31,7 @@ export function buildNeighborhoodGraph(
     includeRows: boolean;
     includePaths: boolean;
     pendingOnly: boolean;
-    implementedOnly: boolean;
+    evidenceBearingOnly: boolean;
   }
 ): ColumnarGraph {
   const hlrNodesMap = new Map<string, GraphNode>();
@@ -97,11 +98,11 @@ export function buildNeighborhoodGraph(
     if (focusedHlrIds.has(h.id)) {
       // Find row status for this HLR
       const associatedRows = matrixRows.filter(r => r.detectedHlrIds.includes(h.id));
-      const status = associatedRows.length > 0 ? associatedRows[0].normalizedStatus : 'unknown';
+      const status = strongestStatus(associatedRows.map((row) => row.normalizedStatus));
 
       // Status filters
       if (filters.pendingOnly && status !== 'pending') return;
-      if (filters.implementedOnly && !isImplementedLikeStatus(status)) return;
+      if (filters.evidenceBearingOnly && !isEvidenceBearingStatus(status)) return;
 
       hlrNodesMap.set(h.id, {
         id: h.id,
@@ -122,10 +123,10 @@ export function buildNeighborhoodGraph(
           r.detectedLlrIds.includes(l.id) || 
           r.detectedHlrIds.some(hId => associatedHlrs.includes(hId))
         );
-        const status = associatedRows.length > 0 ? associatedRows[0].normalizedStatus : 'unknown';
+        const status = strongestStatus(associatedRows.map((row) => row.normalizedStatus));
 
         if (filters.pendingOnly && status !== 'pending') return;
-        if (filters.implementedOnly && !isImplementedLikeStatus(status)) return;
+        if (filters.evidenceBearingOnly && !isEvidenceBearingStatus(status)) return;
 
         llrNodesMap.set(l.id, {
           id: l.id,
@@ -142,7 +143,7 @@ export function buildNeighborhoodGraph(
     matrixRows.forEach(row => {
       if (focusedRowNumbers.has(row.rowNumber)) {
         if (filters.pendingOnly && row.normalizedStatus !== 'pending') return;
-        if (filters.implementedOnly && !isImplementedLikeStatus(row.normalizedStatus)) return;
+        if (filters.evidenceBearingOnly && !isEvidenceBearingStatus(row.normalizedStatus)) return;
 
         rowNodesMap.set(`row-${row.rowNumber}`, {
           id: `row-${row.rowNumber}`,
@@ -159,7 +160,7 @@ export function buildNeighborhoodGraph(
     matrixRows.forEach(row => {
       if (focusedRowNumbers.has(row.rowNumber)) {
         if (filters.pendingOnly && row.normalizedStatus !== 'pending') return;
-        if (filters.implementedOnly && !isImplementedLikeStatus(row.normalizedStatus)) return;
+        if (filters.evidenceBearingOnly && !isEvidenceBearingStatus(row.normalizedStatus)) return;
 
         // Add Evidence Paths
         row.detectedPaths.forEach(path => {

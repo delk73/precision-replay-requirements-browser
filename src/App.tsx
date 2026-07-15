@@ -322,7 +322,7 @@ export default function App() {
         includeRows: true,
         includePaths: true,
         pendingOnly: false,
-        implementedOnly: false,
+        evidenceBearingOnly: false,
       }),
     [results, selectedId, selectedKind],
   );

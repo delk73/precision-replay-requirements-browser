@@ -172,9 +172,9 @@ assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-BO
 
 const explicitStatusMatrix = parseMatrix([
   '| HLR-STATUS-PENDING-001 | LLR-STATUS-PENDING-001 | Status: pending. Implementation exists in prose but is not credited. |',
-  '| HLR-STATUS-IMPLEMENTED-001 | LLR-STATUS-IMPLEMENTED-001 | Status: implemented. |',
-  '| HLR-STATUS-TESTED-001 | LLR-STATUS-TESTED-001 | Status: tested. |',
-  '| HLR-STATUS-PROOF-001 | LLR-STATUS-PROOF-001 | Status: proof_partial. |',
+  '| HLR-STATUS-IMPLEMENTED-001 | LLR-STATUS-IMPLEMENTED-001 | Status: implemented. Retained checker verified and tested this path. |',
+  '| HLR-STATUS-TESTED-001 | LLR-STATUS-TESTED-001 | Status: tested. Bounded Kani proof exists in related prose. |',
+  '| HLR-STATUS-PROOF-001 | LLR-STATUS-PROOF-001 | Status: proof_partial. Executable test coverage is mentioned in prose. |',
   '| HLR-STATUS-BOUNDARY-001 | LLR-STATUS-BOUNDARY-001 | Status: boundary_only. |',
   '| HLR-STATUS-TRACED-001 | LLR-STATUS-TRACED-001 | Status: traced. |',
   '| HLR-STATUS-UNKNOWN-001 | LLR-STATUS-UNKNOWN-001 | Status: unknown. Implementation and verification are pending. |',
@@ -185,8 +185,11 @@ assert.equal(explicitStatusFor('HLR-STATUS-PENDING-001')?.normalizedStatus, 'pen
 assert.equal(explicitStatusFor('HLR-STATUS-PENDING-001')?.statusSource, 'explicit');
 assert.equal(explicitStatusFor('HLR-STATUS-PENDING-001')?.rawStatusText, 'pending');
 assert.equal(explicitStatusFor('HLR-STATUS-IMPLEMENTED-001')?.normalizedStatus, 'implemented');
+assert.equal(explicitStatusFor('HLR-STATUS-IMPLEMENTED-001')?.rawStatusText, 'implemented');
 assert.equal(explicitStatusFor('HLR-STATUS-TESTED-001')?.normalizedStatus, 'tested');
+assert.equal(explicitStatusFor('HLR-STATUS-TESTED-001')?.rawStatusText, 'tested');
 assert.equal(explicitStatusFor('HLR-STATUS-PROOF-001')?.normalizedStatus, 'proof_partial');
+assert.equal(explicitStatusFor('HLR-STATUS-PROOF-001')?.rawStatusText, 'proof_partial');
 assert.equal(explicitStatusFor('HLR-STATUS-BOUNDARY-001')?.normalizedStatus, 'boundary_only');
 assert.equal(explicitStatusFor('HLR-STATUS-TRACED-001')?.normalizedStatus, 'traced');
 assert.equal(explicitStatusFor('HLR-STATUS-UNKNOWN-001')?.normalizedStatus, 'pending');
@@ -198,10 +201,23 @@ const statusGraph = buildNeighborhoodGraph(
   [{ id: 'HLR-REPLAY-CHECK-002', kind: 'hlr', title: 'Checker Parse Stage', text: '', sourceFile: 'docs/normative/HLR_replay.md', sourceLine: 1, rawSnippet: '' }],
   [{ id: 'LLR-REPLAY-CHECK-008', kind: 'llr', title: 'Checked-In Entrypoint Stable Failure Diagnostics', text: '', sourceFile: 'docs/design/LLR_replay.md', sourceLine: 1, rawSnippet: '', tracedHlrIds: ['HLR-REPLAY-CHECK-002'] }],
   statusMatrix.rows,
-  { includeLlrs: true, includeRows: true, includePaths: true, pendingOnly: false, implementedOnly: false },
+  { includeLlrs: true, includeRows: true, includePaths: true, pendingOnly: false, evidenceBearingOnly: false },
 );
 assert.ok(statusGraph.leafNodes.some((node) => node.label === 'Evidence: core/examples/replay_check.rs'));
 assert.ok(!statusGraph.leafNodes.some((node) => node.label.startsWith('Status:')));
+
+const strongestStatusGraph = buildNeighborhoodGraph(
+  'HLR-STATUS-SUMMARY-001',
+  'hlr',
+  [{ id: 'HLR-STATUS-SUMMARY-001', kind: 'hlr', title: 'Status Summary', text: '', sourceFile: 'docs/normative/HLR_status.md', sourceLine: 1, rawSnippet: '' }],
+  [],
+  parseMatrix([
+    '| HLR-STATUS-SUMMARY-001 | | Status: implemented. |',
+    '| HLR-STATUS-SUMMARY-001 | | Status: tested. |',
+  ].join('\n'), 'docs/normative/traceability_matrix.md').rows,
+  { includeLlrs: true, includeRows: true, includePaths: true, pendingOnly: false, evidenceBearingOnly: false },
+);
+assert.equal(strongestStatusGraph.hlrNodes.find((node) => node.id === 'HLR-STATUS-SUMMARY-001')?.status, 'tested');
 
 const untracedResults = parseRepoSources({
   validation,
