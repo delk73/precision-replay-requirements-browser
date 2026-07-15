@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { buildNeighborhoodGraph } from './graph';
 import { normalizeStatus, parseMatrix, parseRepoSources, RawSourceFile } from './parser';
 import { NormalizedStatus, RepoValidation, SourceFileStatus } from '../types';
 
@@ -140,6 +141,7 @@ const statusExamples: Array<[string, NormalizedStatus]> = [
   ['Establishes the current binary interoperability surface...', 'implemented'],
   ['HLR-defined / LLR, implementation, and verification pending.', 'pending'],
   ['Implementation and verification are pending.', 'pending'],
+  ['Black-box covers the checked-in Rust replay checker command boundary for successful witness output.', 'tested'],
   ['Neutral traceability text with no stronger status language.', 'traced'],
   ['', 'unknown'],
   ['Evidence-boundary row: this does not claim full coverage and excludes runtime proof.', 'boundary_only'],
@@ -154,6 +156,7 @@ const statusMatrix = parseMatrix([
   '| HLR-MATH-REP-002 | LLR-MATH-REP-002 | Defines the fractional scaling constant. |',
   '| HLR-MATH-REP-003 | LLR-MATH-REP-003 | Establishes the current binary interoperability surface. |',
   '| HLR-REPLAY-RETAINED-RUN-001 | LLR-REPLAY-011 | Implementation and verification are pending. |',
+  '| HLR-REPLAY-CHECK-002 | LLR-REPLAY-CHECK-008 | Black-box covers the checked-in Rust replay checker command boundary for successful witness output. | core/examples/replay_check.rs |',
   '| HLR-TRACE-NEUTRAL-001 | LLR-TRACE-NEUTRAL-001 | Neutral traceability text. |',
   '| HLR-BOUNDARY-001 | LLR-BOUNDARY-001 | Evidence-boundary row excludes broader behavior. |',
 ].join('\n'), 'docs/normative/traceability_matrix.md');
@@ -162,8 +165,20 @@ assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-MA
 assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-MATH-REP-002'))?.normalizedStatus, 'implemented');
 assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-MATH-REP-003'))?.normalizedStatus, 'implemented');
 assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-REPLAY-RETAINED-RUN-001'))?.normalizedStatus, 'pending');
+assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-REPLAY-CHECK-002'))?.normalizedStatus, 'tested');
 assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-TRACE-NEUTRAL-001'))?.normalizedStatus, 'traced');
 assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-BOUNDARY-001'))?.normalizedStatus, 'boundary_only');
+
+const statusGraph = buildNeighborhoodGraph(
+  'LLR-REPLAY-CHECK-008',
+  'llr',
+  [{ id: 'HLR-REPLAY-CHECK-002', kind: 'hlr', title: 'Checker Parse Stage', text: '', sourceFile: 'docs/normative/HLR_replay.md', sourceLine: 1, rawSnippet: '' }],
+  [{ id: 'LLR-REPLAY-CHECK-008', kind: 'llr', title: 'Checked-In Entrypoint Stable Failure Diagnostics', text: '', sourceFile: 'docs/design/LLR_replay.md', sourceLine: 1, rawSnippet: '', tracedHlrIds: ['HLR-REPLAY-CHECK-002'] }],
+  statusMatrix.rows,
+  { includeLlrs: true, includeRows: true, includePaths: true, pendingOnly: false, implementedOnly: false },
+);
+assert.ok(statusGraph.leafNodes.some((node) => node.label === 'Evidence: core/examples/replay_check.rs'));
+assert.ok(!statusGraph.leafNodes.some((node) => node.label.startsWith('Status:')));
 
 const untracedResults = parseRepoSources({
   validation,

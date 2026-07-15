@@ -2,7 +2,6 @@ import {
   HlrObject, 
   LlrObject, 
   MatrixRowObject, 
-  EvidencePathObject, 
   GraphNode, 
   GraphEdge,
   NormalizedStatus,
@@ -172,14 +171,6 @@ export function buildNeighborhoodGraph(
           });
         });
 
-        // Add Status Marker node
-        const markerId = `status-${row.rowNumber}`;
-        leafNodesMap.set(markerId, {
-          id: markerId,
-          label: `Status: ${row.rawStatusText.toUpperCase()}`,
-          type: 'status',
-          status: row.normalizedStatus
-        });
       }
     });
   }
@@ -258,16 +249,6 @@ export function buildNeighborhoodGraph(
           }
         });
 
-        // Edge 5: matrix row to status marker
-        const markerId = `status-${row.rowNumber}`;
-        if (leafNodesMap.has(markerId)) {
-          edges.push({
-            id: `edge-${rowNodeId}-${markerId}`,
-            source: rowNodeId,
-            target: markerId,
-            label: 'Declares'
-          });
-        }
       }
     });
   }
