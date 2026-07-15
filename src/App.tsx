@@ -520,7 +520,7 @@ export default function App() {
             )}
             {activeTab === 'trace' && <TraceView graph={graph} rows={results.matrixRows} activeRow={activeRow} linkContext={results.validation} />}
             {activeTab === 'audit' && <AuditView groups={auditGroups} rows={results.matrixRows} linkContext={results.validation} onFocus={selectRequirement} onRowFocus={(row) => { setSelectedRow(row); setActiveTab('requirements'); }} />}
-            {activeTab === 'work' && <WorkPacketView results={results} requirements={requirements} linkContext={results.validation} onFocus={selectRequirement} />}
+            {activeTab === 'work' && <WorkPacketView results={results} requirements={requirements} linkContext={results.validation} />}
           </div>
         </section>
       </main>
@@ -589,6 +589,7 @@ function summarizeRequirement(req: HlrObject | LlrObject, rows: MatrixRowObject[
     kind: req.kind,
     title: req.title,
     sourceFile: req.sourceFile,
+    sourceLine: req.sourceLine,
     status: matching[0]?.normalizedStatus || 'untraced' as NormalizedStatus,
   };
 }
@@ -611,6 +612,7 @@ function summarizeDelta(delta: ComparisonDelta): RequirementSummary {
     kind: delta.kind as RequirementKind,
     title: delta.title || delta.message,
     sourceFile: delta.sourceFile || 'comparison',
+    sourceLine: delta.sourceLine || 1,
     status: delta.status || 'unknown' as NormalizedStatus,
   };
 }
@@ -818,6 +820,33 @@ function MatrixRowLabel({ row, linkContext, compact = false }: { row: MatrixRowO
   );
 }
 
+function numberRanges(values: number[]): string {
+  const sorted = Array.from(new Set(values)).sort((a, b) => a - b);
+  const ranges: string[] = [];
+  let start: number | null = null;
+  let previous: number | null = null;
+
+  sorted.forEach((value) => {
+    if (start === null || previous === null) {
+      start = value;
+      previous = value;
+      return;
+    }
+    if (value === previous + 1) {
+      previous = value;
+      return;
+    }
+    ranges.push(start === previous ? String(start) : `${start}-${previous}`);
+    start = value;
+    previous = value;
+  });
+
+  if (start !== null && previous !== null) {
+    ranges.push(start === previous ? String(start) : `${start}-${previous}`);
+  }
+  return ranges.join(', ');
+}
+
 function TraceView({ graph, rows, activeRow, linkContext }: { graph: ReturnType<typeof buildNeighborhoodGraph>; rows: MatrixRowObject[]; activeRow: MatrixRowObject | null; linkContext: MatrixRowLinkContext }) {
   const rowByNumber = new Map(rows.map((row) => [row.rowNumber, row]));
   const rowItems = graph.rowNodes.map((node) => {
@@ -926,12 +955,10 @@ function WorkPacketView({
   results,
   requirements,
   linkContext,
-  onFocus,
 }: {
   results: ParseResults;
   requirements: RequirementSummary[];
   linkContext: MatrixRowLinkContext;
-  onFocus: (id: string, kind: RequirementKind) => void;
 }) {
   const rowByNumber = new Map(results.matrixRows.map((row) => [row.rowNumber, row]));
   return (
@@ -940,25 +967,37 @@ function WorkPacketView({
         const packetRequirements = requirements.filter((req) => (
           req.kind === 'hlr' ? packet.hlrIds.includes(req.id) : packet.llrIds.includes(req.id)
         ));
+        const packetRows = packet.rowNumbers.map((rowNumber) => rowByNumber.get(rowNumber)).filter((row): row is MatrixRowObject => Boolean(row));
+        const rowRange = numberRanges(packetRows.map((row) => row.rowNumber));
+        const sourceFiles = Array.from(new Set(packetRows.map((row) => basename(row.sourceFile))));
+        const lineRanges = sourceFiles.map((file) => {
+          const lines = packetRows.filter((row) => basename(row.sourceFile) === file).map((row) => row.sourceLine);
+          return `${file}:${numberRanges(lines)}`;
+        });
         return (
           <section key={packet.id} className="rounded border border-slate-800 bg-[#111419] p-4">
             <h3 className="text-base font-semibold">{packet.label}</h3>
             <p className="mt-1 text-xs text-slate-500">{packet.hlrIds.length} HLR / {packet.llrIds.length} LLR / {packet.rowNumbers.length} rows / {packet.auditIds.length} audits</p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {packetRequirements.slice(0, 32).map((req) => <button key={`${req.kind}-${req.id}`} type="button" onClick={() => onFocus(req.id, req.kind)} className="rounded border border-slate-700 px-2 py-1 font-mono text-xs hover:border-sky-500">{req.id}</button>)}
-            </div>
-            {packet.rowNumbers.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {packet.rowNumbers.slice(0, 16).map((rowNumber) => {
-                  const row = rowByNumber.get(rowNumber);
-                  return row ? (
-                    <span key={rowNumber} className="rounded border border-slate-800 bg-[#0A0B0E] px-2 py-1 text-xs">
-                      <MatrixRowLabel row={row} linkContext={linkContext} compact />
-                    </span>
-                  ) : null;
-                })}
+            {packetRows.length > 0 && (
+              <div className="mt-2 space-y-1 text-xs text-slate-400">
+                <p><span className="text-slate-500">Rows:</span> <span className="font-mono">{rowRange}</span></p>
+                <p><span className="text-slate-500">Source:</span> <span className="font-mono">{lineRanges.join(', ')}</span></p>
               </div>
             )}
+            <div className="mt-4 flex flex-wrap gap-2">
+              {packetRequirements.slice(0, 32).map((req) => {
+                const href = githubBlobUrl(linkContext, req.sourceFile, req.sourceLine);
+                return href ? (
+                  <a key={`${req.kind}-${req.id}`} href={href} target="_blank" rel="noreferrer" className="rounded border border-slate-700 px-2 py-1 font-mono text-xs text-slate-100 hover:border-sky-500 hover:text-sky-200">
+                    {req.id}
+                  </a>
+                ) : (
+                  <span key={`${req.kind}-${req.id}`} className="rounded border border-slate-700 px-2 py-1 font-mono text-xs text-slate-100">
+                    {req.id}
+                  </span>
+                );
+              })}
+            </div>
           </section>
         );
       })}
