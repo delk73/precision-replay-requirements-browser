@@ -265,7 +265,15 @@ export default function App() {
     const needle = searchQuery.trim().toLowerCase();
     return combined.filter((req) => {
       if (!needle) return true;
-      return `${req.id} ${req.title} ${req.sourceFile}`.toLowerCase().includes(needle);
+      const terms = needle.split(/\s+/).filter(Boolean);
+      const positiveTerms = terms.filter((term) => !term.startsWith('-'));
+      const negativeTerms = terms
+        .filter((term) => term.startsWith('-'))
+        .map((term) => term.slice(1))
+        .filter(Boolean);
+      const haystack = `${req.id} ${req.title} ${req.sourceFile} ${req.status} ${req.kind} ${domainFrom(req.id, req.sourceFile)}`.toLowerCase();
+      return positiveTerms.every((term) => haystack.includes(term))
+        && negativeTerms.every((term) => !haystack.includes(term));
     });
   }, [results, searchQuery, activeDiffFilter]);
 
@@ -438,7 +446,7 @@ export default function App() {
               <input
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search ID, title, source"
+                placeholder="Search ID, status, source; use -term to exclude"
                 className="w-full bg-transparent text-xs outline-none placeholder:text-slate-600"
               />
             </label>
