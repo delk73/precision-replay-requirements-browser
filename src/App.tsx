@@ -40,6 +40,7 @@ const DEFAULT_REPO_URL = 'https://github.com/delk73/precision-replay.git';
 const DEFAULT_REF = 'main';
 const DEFAULT_LEFT_WIDTH = 380;
 const DEFAULT_RIGHT_WIDTH = 360;
+const STATUS_BREAKDOWN_ORDER: NormalizedStatus[] = ['tested', 'proof_partial', 'implemented', 'boundary_only', 'traced', 'pending', 'unknown', 'untraced'];
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -521,7 +522,7 @@ export default function App() {
             <TabButton active={activeTab === 'requirements'} onClick={() => setActiveTab('requirements')} icon={<BookOpen className="h-4 w-4" />} label="Requirement" />
             <TabButton active={activeTab === 'trace'} onClick={() => setActiveTab('trace')} icon={<Network className="h-4 w-4" />} label="Trace Path" />
             <TabButton active={activeTab === 'audit'} onClick={() => setActiveTab('audit')} icon={<ShieldAlert className="h-4 w-4" />} label="Audit" />
-            <TabButton active={activeTab === 'work'} onClick={() => setActiveTab('work')} icon={<Layers className="h-4 w-4" />} label="Work Packets" />
+            <TabButton active={activeTab === 'work'} onClick={() => setActiveTab('work')} icon={<Layers className="h-4 w-4" />} label="System View" />
           </nav>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-5">
@@ -545,7 +546,7 @@ export default function App() {
             )}
             {activeTab === 'trace' && <TraceView graph={graph} rows={results.matrixRows} activeRow={activeRow} linkContext={results.validation} />}
             {activeTab === 'audit' && <AuditView groups={visibleAuditGroups} isScoped={isAuditScoped} rows={results.matrixRows} linkContext={results.validation} onFocus={selectRequirement} onRowFocus={(row) => { setSelectedRow(row); setActiveTab('requirements'); }} />}
-            {activeTab === 'work' && <WorkPacketView results={results} requirements={requirements} linkContext={results.validation} />}
+            {activeTab === 'work' && <WorkPacketView results={results} requirements={requirements} linkContext={results.validation} isScoped={isAuditScoped} />}
           </div>
         </section>
       </main>
@@ -1026,29 +1027,75 @@ function WorkPacketView({
   results,
   requirements,
   linkContext,
+  isScoped,
 }: {
   results: ParseResults;
   requirements: RequirementSummary[];
   linkContext: MatrixRowLinkContext;
+  isScoped: boolean;
 }) {
   const rowByNumber = new Map(results.matrixRows.map((row) => [row.rowNumber, row]));
+  const auditById = new Map(results.audits.map((audit) => [audit.id, audit]));
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="space-y-4">
+      {isScoped && (
+        <div className="rounded border border-sky-500/20 bg-sky-500/5 p-3 text-xs text-sky-100">
+          System view filtered by left requirement list.
+        </div>
+      )}
+      <div className="grid gap-4 lg:grid-cols-2">
       {results.workPackets.map((packet) => {
         const packetRequirements = requirements.filter((req) => (
           req.kind === 'hlr' ? packet.hlrIds.includes(req.id) : packet.llrIds.includes(req.id)
         ));
-        const packetRows = packet.rowNumbers.map((rowNumber) => rowByNumber.get(rowNumber)).filter((row): row is MatrixRowObject => Boolean(row));
+        const packetHlrIds = new Set(packetRequirements.filter((req) => req.kind === 'hlr').map((req) => req.id));
+        const packetLlrIds = new Set(packetRequirements.filter((req) => req.kind === 'llr').map((req) => req.id));
+        const packetRows = packet.rowNumbers
+          .map((rowNumber) => rowByNumber.get(rowNumber))
+          .filter((row): row is MatrixRowObject => Boolean(row))
+          .filter((row) => (
+            row.detectedHlrIds.some((id) => packetHlrIds.has(id))
+            || row.detectedLlrIds.some((id) => packetLlrIds.has(id))
+            || (!isScoped && packetRequirements.length === 0)
+          ));
+        const packetRowNumbers = new Set(packetRows.map((row) => row.rowNumber));
+        const packetAudits = packet.auditIds
+          .map((auditId) => auditById.get(auditId))
+          .filter((audit): audit is AuditItem => Boolean(audit))
+          .filter((audit) => (
+            !isScoped
+            || Boolean(audit.hlrId && packetHlrIds.has(audit.hlrId))
+            || Boolean(audit.llrId && packetLlrIds.has(audit.llrId))
+            || Boolean(audit.rowNumber && packetRowNumbers.has(audit.rowNumber))
+          ));
+        const actionableErrors = packetAudits.filter((audit) => audit.severity === 'Error');
+        if (packetRequirements.length === 0 && packetRows.length === 0 && actionableErrors.length === 0) return null;
+
+        const hlrCount = packetRequirements.filter((req) => req.kind === 'hlr').length;
+        const llrCount = packetRequirements.filter((req) => req.kind === 'llr').length;
         const rowRange = numberRanges(packetRows.map((row) => row.rowNumber));
         const sourceFiles = Array.from(new Set(packetRows.map((row) => basename(row.sourceFile))));
         const lineRanges = sourceFiles.map((file) => {
           const lines = packetRows.filter((row) => basename(row.sourceFile) === file).map((row) => row.sourceLine);
           return `${file}:${numberRanges(lines)}`;
         });
+        const statusCounts = packetRequirements.reduce<Record<NormalizedStatus, number>>((counts, req) => {
+          counts[req.status] = (counts[req.status] || 0) + 1;
+          return counts;
+        }, {} as Record<NormalizedStatus, number>);
         return (
           <section key={packet.id} className="rounded border border-slate-800 bg-[#111419] p-4">
             <h3 className="text-base font-semibold">{packet.label}</h3>
-            <p className="mt-1 text-xs text-slate-500">{packet.hlrIds.length} HLR / {packet.llrIds.length} LLR / {packet.rowNumbers.length} rows / {packet.auditIds.length} audits</p>
+            <p className="mt-1 text-xs text-slate-500">{hlrCount} HLR / {llrCount} LLR / {packetRows.length} rows / {packetAudits.length} audits</p>
+            {packetRequirements.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {STATUS_BREAKDOWN_ORDER.filter((status) => statusCounts[status]).map((status) => (
+                  <span key={status} className={`rounded border px-2 py-0.5 text-[10px] uppercase ${statusClass(status)}`}>
+                    {status} {statusCounts[status]}
+                  </span>
+                ))}
+              </div>
+            )}
             {packetRows.length > 0 && (
               <div className="mt-2 space-y-1 text-xs text-slate-400">
                 <p><span className="text-slate-500">Rows:</span> <span className="font-mono">{rowRange}</span></p>
@@ -1072,6 +1119,7 @@ function WorkPacketView({
           </section>
         );
       })}
+      </div>
     </div>
   );
 }
