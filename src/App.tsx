@@ -11,7 +11,7 @@ import {
   ShieldAlert,
   Table,
 } from 'lucide-react';
-import { AuditItem, ComparisonDelta, HlrObject, LlrObject, MatrixRowObject, NormalizedStatus, ParseResults, RequirementKind } from './types';
+import { AuditItem, ComparisonDelta, HlrObject, LlrObject, MatrixRowObject, NormalizedStatus, ParseResults, RepoValidation, RequirementKind } from './types';
 import { buildNeighborhoodGraph } from './lib/graph';
 import { tokenizeMatrixRowText, MatrixRowTokenCategory } from './lib/matrixRowHighlighting';
 import { tokenizeRequirementText } from './lib/textTinting';
@@ -33,6 +33,7 @@ const EMPTY_RESULTS: ParseResults = {
 type Tab = 'requirements' | 'trace' | 'audit' | 'work';
 type DiffFilter = 'all' | 'added' | 'removed' | 'changed' | 'status_changed';
 type RequirementSummary = ReturnType<typeof summarizeRequirement>;
+type MatrixRowLinkContext = Pick<RepoValidation, 'repoUrl' | 'resolvedSha'>;
 
 const DEFAULT_REPO_URL = 'https://github.com/delk73/precision-replay.git';
 const DEFAULT_REF = 'main';
@@ -77,6 +78,37 @@ function domainFrom(id: string, sourceFile = ''): string {
   if (text.includes('replay')) return 'Replay';
   if (text.includes('runner')) return 'Runner';
   return 'General';
+}
+
+function basename(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() || path;
+}
+
+function githubBlobUrl(context: MatrixRowLinkContext, sourceFile: string, sourceLine: number): string | null {
+  if (!context.repoUrl || !context.resolvedSha || !sourceFile || !sourceLine) return null;
+  const repo = parseGitHubRepoUrl(context.repoUrl);
+  if (!repo) return null;
+  const filePath = sourceFile.split('/').map(encodeURIComponent).join('/');
+  const plain = /\.md$/i.test(sourceFile) ? '?plain=1' : '';
+  return `https://github.com/${repo.owner}/${repo.repo}/blob/${context.resolvedSha}/${filePath}${plain}#L${sourceLine}`;
+}
+
+function parseGitHubRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
+  const trimmed = repoUrl.trim();
+  const sshMatch = trimmed.match(/^git@github\.com:(?<owner>[^/]+)\/(?<repo>[^/#?]+?)(?:\.git)?$/i);
+  if (sshMatch?.groups?.owner && sshMatch.groups.repo) {
+    return { owner: sshMatch.groups.owner, repo: sshMatch.groups.repo };
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.hostname.toLowerCase() !== 'github.com') return null;
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    if (parts.length !== 2) return null;
+    return { owner: parts[0], repo: parts[1].replace(/\.git$/i, '') };
+  } catch {
+    return null;
+  }
 }
 
 export default function App() {
@@ -478,6 +510,7 @@ export default function App() {
                 requirement={selectedRequirement}
                 rows={selectedRows}
                 activeRow={activeRow}
+                linkContext={results.validation}
                 linkedHlrs={linkedHlrs}
                 linkedLlrs={linkedLlrs}
                 rightWidth={rightWidth}
@@ -485,9 +518,9 @@ export default function App() {
                 onRowSelect={setSelectedRow}
               />
             )}
-            {activeTab === 'trace' && <TraceView graph={graph} activeRow={activeRow} />}
-            {activeTab === 'audit' && <AuditView groups={auditGroups} onFocus={selectRequirement} onRowFocus={(row) => { setSelectedRow(row); setActiveTab('requirements'); }} />}
-            {activeTab === 'work' && <WorkPacketView results={results} requirements={requirements} onFocus={selectRequirement} />}
+            {activeTab === 'trace' && <TraceView graph={graph} rows={results.matrixRows} activeRow={activeRow} linkContext={results.validation} />}
+            {activeTab === 'audit' && <AuditView groups={auditGroups} rows={results.matrixRows} linkContext={results.validation} onFocus={selectRequirement} onRowFocus={(row) => { setSelectedRow(row); setActiveTab('requirements'); }} />}
+            {activeTab === 'work' && <WorkPacketView results={results} requirements={requirements} linkContext={results.validation} onFocus={selectRequirement} />}
           </div>
         </section>
       </main>
@@ -624,6 +657,7 @@ function RequirementDetail({
   requirement,
   rows,
   activeRow,
+  linkContext,
   linkedHlrs,
   linkedLlrs,
   rightWidth,
@@ -633,6 +667,7 @@ function RequirementDetail({
   requirement: HlrObject | LlrObject | null;
   rows: MatrixRowObject[];
   activeRow: MatrixRowObject | null;
+  linkContext: MatrixRowLinkContext;
   linkedHlrs: HlrObject[];
   linkedLlrs: LlrObject[];
   rightWidth: number;
@@ -667,13 +702,22 @@ function RequirementDetail({
           {rows.length === 0 && <p className="text-sm text-rose-300">No matrix row exists; status is untraced.</p>}
           <div className="space-y-2">
             {rows.map((row) => (
-              <button key={row.rowNumber} type="button" onClick={() => onRowSelect(row.rowNumber)} className="w-full rounded border border-slate-800 bg-[#0A0B0E] p-3 text-left text-xs hover:border-slate-700">
+              <div
+                key={row.rowNumber}
+                className="w-full rounded border border-slate-800 bg-[#0A0B0E] p-3 text-left text-xs hover:border-slate-700"
+              >
                 <div className="flex items-center justify-between gap-3">
-                  <span className="font-mono font-semibold">Row {row.rowNumber}</span>
+                  <span className="inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                    <button type="button" onClick={() => onRowSelect(row.rowNumber)} className="font-mono font-semibold text-slate-100 underline-offset-2 hover:text-sky-200 hover:underline">
+                      <MatrixRowOrdinal row={row} compact />
+                    </button>
+                    <span className="text-slate-600">&middot;</span>
+                    <MatrixRowSource row={row} linkContext={linkContext} />
+                  </span>
                   <span className={`rounded border px-2 py-0.5 uppercase ${statusClass(row.normalizedStatus)}`}>{row.rawStatusText}</span>
                 </div>
                 <p className="mt-2 break-words font-mono text-slate-400"><MatrixRowText text={row.rawText} /></p>
-              </button>
+              </div>
             ))}
           </div>
         </section>
@@ -748,37 +792,87 @@ function LinkedRequirements({ linkedHlrs, linkedLlrs, requirement }: { linkedHlr
   );
 }
 
-function TraceView({ graph, activeRow }: { graph: ReturnType<typeof buildNeighborhoodGraph>; activeRow: MatrixRowObject | null }) {
+function MatrixRowOrdinal({ row, compact = false }: { row: MatrixRowObject; compact?: boolean }) {
+  return <>{compact ? `Row ${row.rowNumber}` : `Matrix Row ${row.rowNumber}`}</>;
+}
+
+function MatrixRowSource({ row, linkContext }: { row: MatrixRowObject; linkContext: MatrixRowLinkContext }) {
+  const sourceLabel = `${basename(row.sourceFile)}:${row.sourceLine}`;
+  const href = githubBlobUrl(linkContext, row.sourceFile, row.sourceLine);
+  return href ? (
+    <a href={href} target="_blank" rel="noreferrer" className="font-mono text-sky-300 underline decoration-sky-500/40 underline-offset-2 hover:text-sky-200">
+      {sourceLabel}
+    </a>
+  ) : (
+    <span className="font-mono text-slate-500">{sourceLabel}</span>
+  );
+}
+
+function MatrixRowLabel({ row, linkContext, compact = false }: { row: MatrixRowObject; linkContext: MatrixRowLinkContext; compact?: boolean }) {
+  return (
+    <span className="inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+      <span className="font-mono font-semibold text-slate-100"><MatrixRowOrdinal row={row} compact={compact} /></span>
+      <span className="text-slate-600">&middot;</span>
+      <MatrixRowSource row={row} linkContext={linkContext} />
+    </span>
+  );
+}
+
+function TraceView({ graph, rows, activeRow, linkContext }: { graph: ReturnType<typeof buildNeighborhoodGraph>; rows: MatrixRowObject[]; activeRow: MatrixRowObject | null; linkContext: MatrixRowLinkContext }) {
+  const rowByNumber = new Map(rows.map((row) => [row.rowNumber, row]));
+  const rowItems = graph.rowNodes.map((node) => {
+    const rowNumber = Number(node.id.replace('row-', ''));
+    const row = rowByNumber.get(rowNumber);
+    return row ? <MatrixRowLabel row={row} linkContext={linkContext} /> : node.label;
+  });
   return (
     <div className="space-y-5">
       <div className="grid gap-4 lg:grid-cols-4">
         <TraceColumn title="HLR" items={graph.hlrNodes.map((node) => node.label)} />
         <TraceColumn title="LLR" items={graph.llrNodes.map((node) => node.label)} />
-        <TraceColumn title="Matrix Row" items={graph.rowNodes.map((node) => node.label)} />
+        <TraceColumn title="Matrix Row" items={rowItems} />
         <TraceColumn title="Implementation / Evidence" items={graph.leafNodes.map((node) => node.label)} />
       </div>
       <section className="rounded border border-slate-800 bg-[#111419] p-4">
         <h3 className="mb-2 text-sm font-semibold">Active Trace Path</h3>
         <p className="font-mono text-xs text-slate-400">HLR -&gt; LLR -&gt; matrix row -&gt; implementation/evidence</p>
-        {activeRow && <p className="mt-3 break-words font-mono text-xs text-slate-300">{activeRow.rawText}</p>}
+        {activeRow && (
+          <div className="mt-3 space-y-2">
+            <p className="text-xs"><MatrixRowLabel row={activeRow} linkContext={linkContext} /></p>
+            <p className="break-words font-mono text-xs text-slate-300">{activeRow.rawText}</p>
+          </div>
+        )}
       </section>
     </div>
   );
 }
 
-function TraceColumn({ title, items }: { title: string; items: string[] }) {
+function TraceColumn({ title, items }: { title: string; items: React.ReactNode[] }) {
   return (
     <section className="min-h-64 rounded border border-slate-800 bg-[#111419] p-4">
       <h3 className="mb-3 text-xs font-semibold uppercase text-slate-400">{title}</h3>
       <div className="space-y-2">
-        {items.length === 0 ? <p className="text-xs text-slate-600">No linked item.</p> : items.map((item) => <p key={item} className="rounded border border-slate-800 bg-[#0A0B0E] p-2 text-xs">{item}</p>)}
+        {items.length === 0 ? <p className="text-xs text-slate-600">No linked item.</p> : items.map((item, index) => <p key={index} className="rounded border border-slate-800 bg-[#0A0B0E] p-2 text-xs">{item}</p>)}
       </div>
     </section>
   );
 }
 
-function AuditView({ groups, onFocus, onRowFocus }: { groups: Record<string, AuditItem[]>; onFocus: (id: string, kind: RequirementKind) => void; onRowFocus: (row: number) => void }) {
+function AuditView({
+  groups,
+  rows,
+  linkContext,
+  onFocus,
+  onRowFocus,
+}: {
+  groups: Record<string, AuditItem[]>;
+  rows: MatrixRowObject[];
+  linkContext: MatrixRowLinkContext;
+  onFocus: (id: string, kind: RequirementKind) => void;
+  onRowFocus: (row: number) => void;
+}) {
   const entries = Object.entries(groups);
+  const rowByNumber = new Map(rows.map((row) => [row.rowNumber, row]));
   if (entries.length === 0) return <EmptyState title="No audit warnings" body="The loaded requirement graph has no parser audit findings." />;
   return (
     <div className="space-y-5">
@@ -787,22 +881,39 @@ function AuditView({ groups, onFocus, onRowFocus }: { groups: Record<string, Aud
           <h3 className="mb-3 text-sm font-semibold">{category} <span className="text-slate-500">({audits.length})</span></h3>
           <div className="space-y-2">
             {audits.map((audit) => (
-              <button
+              <div
                 key={audit.id}
-                type="button"
-                onClick={() => {
-                  if (audit.hlrId) onFocus(audit.hlrId, 'hlr');
-                  else if (audit.llrId) onFocus(audit.llrId, 'llr');
-                  else if (audit.rowNumber) onRowFocus(audit.rowNumber);
-                }}
                 className={`w-full rounded border p-3 text-left text-xs ${audit.severity === 'Error' ? 'border-rose-500/30 bg-rose-500/5' : 'border-amber-500/30 bg-amber-500/5'}`}
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono font-semibold">{audit.severity}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (audit.hlrId) onFocus(audit.hlrId, 'hlr');
+                      else if (audit.llrId) onFocus(audit.llrId, 'llr');
+                      else if (audit.rowNumber) onRowFocus(audit.rowNumber);
+                    }}
+                    className="font-mono font-semibold underline-offset-2 hover:text-sky-200 hover:underline"
+                  >
+                    {audit.severity}
+                  </button>
                   {audit.missingState && <span className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-[10px]">{audit.missingState}</span>}
+                  {audit.rowNumber && rowByNumber.has(audit.rowNumber) && (
+                    <span className="inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                      <button
+                        type="button"
+                        onClick={() => onRowFocus(audit.rowNumber!)}
+                        className="font-mono font-semibold text-slate-100 underline-offset-2 hover:text-sky-200 hover:underline"
+                      >
+                        <MatrixRowOrdinal row={rowByNumber.get(audit.rowNumber)!} compact />
+                      </button>
+                      <span className="text-slate-600">&middot;</span>
+                      <MatrixRowSource row={rowByNumber.get(audit.rowNumber)!} linkContext={linkContext} />
+                    </span>
+                  )}
                 </div>
                 <p className="mt-2 text-slate-300">{audit.message}</p>
-              </button>
+              </div>
             ))}
           </div>
         </section>
@@ -811,7 +922,18 @@ function AuditView({ groups, onFocus, onRowFocus }: { groups: Record<string, Aud
   );
 }
 
-function WorkPacketView({ results, requirements, onFocus }: { results: ParseResults; requirements: RequirementSummary[]; onFocus: (id: string, kind: RequirementKind) => void }) {
+function WorkPacketView({
+  results,
+  requirements,
+  linkContext,
+  onFocus,
+}: {
+  results: ParseResults;
+  requirements: RequirementSummary[];
+  linkContext: MatrixRowLinkContext;
+  onFocus: (id: string, kind: RequirementKind) => void;
+}) {
+  const rowByNumber = new Map(results.matrixRows.map((row) => [row.rowNumber, row]));
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       {results.workPackets.map((packet) => {
@@ -825,6 +947,18 @@ function WorkPacketView({ results, requirements, onFocus }: { results: ParseResu
             <div className="mt-4 flex flex-wrap gap-2">
               {packetRequirements.slice(0, 32).map((req) => <button key={`${req.kind}-${req.id}`} type="button" onClick={() => onFocus(req.id, req.kind)} className="rounded border border-slate-700 px-2 py-1 font-mono text-xs hover:border-sky-500">{req.id}</button>)}
             </div>
+            {packet.rowNumbers.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {packet.rowNumbers.slice(0, 16).map((rowNumber) => {
+                  const row = rowByNumber.get(rowNumber);
+                  return row ? (
+                    <span key={rowNumber} className="rounded border border-slate-800 bg-[#0A0B0E] px-2 py-1 text-xs">
+                      <MatrixRowLabel row={row} linkContext={linkContext} compact />
+                    </span>
+                  ) : null;
+                })}
+              </div>
+            )}
           </section>
         );
       })}
