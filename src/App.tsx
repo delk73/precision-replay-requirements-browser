@@ -335,13 +335,29 @@ export default function App() {
     [results, selectedId, selectedKind],
   );
 
-  const auditGroups = useMemo(() => {
-    return results.audits.reduce<Record<string, AuditItem[]>>((groups, audit) => {
-      groups[audit.category] = groups[audit.category] || [];
-      groups[audit.category].push(audit);
-      return groups;
-    }, {});
-  }, [results.audits]);
+  const isAuditScoped = searchQuery.trim().length > 0 || activeDiffFilter !== 'all';
+
+  const visibleAuditGroups = useMemo(() => {
+    if (!isAuditScoped) return groupAudits(results.audits);
+
+    const visibleHlrIds = new Set(requirements.filter((req) => req.kind === 'hlr').map((req) => req.id));
+    const visibleLlrIds = new Set(requirements.filter((req) => req.kind === 'llr').map((req) => req.id));
+    const visibleRowNumbers = new Set<number>();
+
+    results.matrixRows.forEach((row) => {
+      const isLinkedToVisibleRequirement = row.detectedHlrIds.some((id) => visibleHlrIds.has(id))
+        || row.detectedLlrIds.some((id) => visibleLlrIds.has(id));
+      if (isLinkedToVisibleRequirement) visibleRowNumbers.add(row.rowNumber);
+    });
+
+    const visibleAudits = results.audits.filter((audit) => (
+      Boolean(audit.hlrId && visibleHlrIds.has(audit.hlrId))
+      || Boolean(audit.llrId && visibleLlrIds.has(audit.llrId))
+      || Boolean(audit.rowNumber && visibleRowNumbers.has(audit.rowNumber))
+    ));
+
+    return groupAudits(visibleAudits);
+  }, [activeDiffFilter, isAuditScoped, requirements, results.audits, results.matrixRows, searchQuery]);
 
   const loadedRequired = results.sourceFiles.filter((file) => file.required && file.loaded).length;
   const totalRequired = results.sourceFiles.filter((file) => file.required).length;
@@ -528,7 +544,7 @@ export default function App() {
               />
             )}
             {activeTab === 'trace' && <TraceView graph={graph} rows={results.matrixRows} activeRow={activeRow} linkContext={results.validation} />}
-            {activeTab === 'audit' && <AuditView groups={auditGroups} rows={results.matrixRows} linkContext={results.validation} onFocus={selectRequirement} onRowFocus={(row) => { setSelectedRow(row); setActiveTab('requirements'); }} />}
+            {activeTab === 'audit' && <AuditView groups={visibleAuditGroups} isScoped={isAuditScoped} rows={results.matrixRows} linkContext={results.validation} onFocus={selectRequirement} onRowFocus={(row) => { setSelectedRow(row); setActiveTab('requirements'); }} />}
             {activeTab === 'work' && <WorkPacketView results={results} requirements={requirements} linkContext={results.validation} />}
           </div>
         </section>
@@ -601,6 +617,14 @@ function summarizeRequirement(req: HlrObject | LlrObject, rows: MatrixRowObject[
     sourceLine: req.sourceLine,
     status: strongestStatus(matching.map((row) => row.normalizedStatus)),
   };
+}
+
+function groupAudits(audits: AuditItem[]): Record<string, AuditItem[]> {
+  return audits.reduce<Record<string, AuditItem[]>>((groups, audit) => {
+    groups[audit.category] = groups[audit.category] || [];
+    groups[audit.category].push(audit);
+    return groups;
+  }, {});
 }
 
 function buildDiffLabels(results: ParseResults, fallbackBase: string, fallbackCompare: string): Record<DiffFilter, string> {
@@ -923,12 +947,14 @@ function TraceColumn({ title, items }: { title: string; items: React.ReactNode[]
 
 function AuditView({
   groups,
+  isScoped,
   rows,
   linkContext,
   onFocus,
   onRowFocus,
 }: {
   groups: Record<string, AuditItem[]>;
+  isScoped: boolean;
   rows: MatrixRowObject[];
   linkContext: MatrixRowLinkContext;
   onFocus: (id: string, kind: RequirementKind) => void;
@@ -936,9 +962,20 @@ function AuditView({
 }) {
   const entries = Object.entries(groups);
   const rowByNumber = new Map(rows.map((row) => [row.rowNumber, row]));
-  if (entries.length === 0) return <EmptyState title="No audit warnings" body="The loaded requirement graph has no parser audit findings." />;
+  if (entries.length === 0 && !isScoped) return <EmptyState title="No audit warnings" body="The loaded requirement graph has no parser audit findings." />;
   return (
     <div className="space-y-5">
+      {isScoped && (
+        <div className="rounded border border-sky-500/20 bg-sky-500/5 p-3 text-xs text-sky-100">
+          Audit filtered by left requirement list.
+        </div>
+      )}
+      {entries.length === 0 && (
+        <section className="rounded border border-slate-800 bg-[#111419] p-4">
+          <h3 className="text-sm font-semibold">No scoped audit warnings</h3>
+          <p className="mt-2 text-sm text-slate-500">No audit findings are connected to the visible requirements.</p>
+        </section>
+      )}
       {entries.map(([category, audits]) => (
         <section key={category} className="rounded border border-slate-800 bg-[#111419] p-4">
           <h3 className="mb-3 text-sm font-semibold">{category} <span className="text-slate-500">({audits.length})</span></h3>
