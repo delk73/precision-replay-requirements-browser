@@ -57,6 +57,7 @@ export interface MatrixRowObject {
   detectedPaths: string[];
   rawStatusText: string;
   normalizedStatus: NormalizedStatus;
+  statusSource: 'explicit' | 'inferred';
   sourceFile: string;
   sourceLine: number;
 }

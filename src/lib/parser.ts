@@ -30,6 +30,8 @@ const HLR_ID = /HLR-[A-Z0-9-]+/gi;
 const LLR_ID = /LLR-[A-Z0-9-]+/gi;
 const HLR_HEADING = /^(#{2,6})\s+(HLR-[A-Z0-9-]+):?\s*(.*)$/i;
 const LLR_HEADING = /^(#{2,6})\s+(LLR-[A-Z0-9-]+):?\s*(.*)$/i;
+const CANONICAL_EXPLICIT_STATUSES = ['pending', 'implemented', 'tested', 'proof_partial', 'boundary_only', 'traced'] as const;
+const EXPLICIT_STATUS = /\bstatus\s*:\s*([a-z_]+)\b/i;
 
 export function extractIds(text: string, pattern: RegExp): string[] {
   const matches = text.match(new RegExp(pattern.source, 'gi'));
@@ -96,6 +98,15 @@ export function normalizeStatus(rawStatusText: string, options: { rowExists?: bo
   }
 
   return options.rowExists ? 'traced' : 'unknown';
+}
+
+export function parseExplicitStatus(text: string): Exclude<NormalizedStatus, 'unknown' | 'untraced'> | null {
+  const match = text.match(EXPLICIT_STATUS);
+  if (!match) return null;
+  const status = match[1].toLowerCase();
+  return CANONICAL_EXPLICIT_STATUSES.includes(status as Exclude<NormalizedStatus, 'unknown' | 'untraced'>)
+    ? status as Exclude<NormalizedStatus, 'unknown' | 'untraced'>
+    : null;
 }
 
 export function guessPathType(pathText: string): EvidencePathObject['typeGuess'] {
@@ -182,11 +193,10 @@ export function parseMatrix(rawText: string, filename: string): { rows: MatrixRo
     if (detectedHlrIds.length === 0 && detectedLlrIds.length === 0) return;
 
     const detectedPaths = extractPaths(rowText);
-    const statusCell = cells.find((cell) => {
-      const status = normalizeStatus(cell);
-      return status !== 'unknown' && status !== 'traced';
-    }) ?? '';
-    const normalizedStatus = statusCell ? normalizeStatus(statusCell) : normalizeStatus(rowText, { rowExists: true });
+    const explicitStatus = parseExplicitStatus(rowText);
+    const statusCell = explicitStatus ? cells.find((cell) => parseExplicitStatus(cell) === explicitStatus) ?? '' : '';
+    const inferredStatus = normalizeStatus(rowText, { rowExists: true });
+    const normalizedStatus = explicitStatus ?? inferredStatus;
 
     rows.push({
       rowNumber,
@@ -194,8 +204,9 @@ export function parseMatrix(rawText: string, filename: string): { rows: MatrixRo
       detectedHlrIds,
       detectedLlrIds,
       detectedPaths,
-      rawStatusText: statusCell || normalizedStatus,
+      rawStatusText: explicitStatus || statusCell || normalizedStatus,
       normalizedStatus,
+      statusSource: explicitStatus ? 'explicit' : 'inferred',
       sourceFile: filename,
       sourceLine: index + 1,
     });
@@ -398,6 +409,17 @@ export function auditRepository(
   matrixRows.forEach((row) => {
     row.detectedHlrIds.forEach((id) => matrixHlrs.add(id));
     row.detectedLlrIds.forEach((id) => matrixLlrs.add(id));
+
+    if ((row.detectedHlrIds.length > 0 || row.detectedLlrIds.length > 0) && row.statusSource !== 'explicit') {
+      audits.push({
+        id: `matrix-row-missing-explicit-status-${row.rowNumber}`,
+        severity: 'Warning',
+        category: 'Matrix Row Missing Explicit Status',
+        rowNumber: row.rowNumber,
+        sourceFile: row.sourceFile,
+        message: `Matrix row ${row.rowNumber} references requirement IDs but does not contain an explicit Status: token.`,
+      });
+    }
 
     row.detectedHlrIds.forEach((hlrId) => {
       if (!hlrDefMap.has(hlrId)) {

@@ -14,6 +14,7 @@ import {
 import { AuditItem, ComparisonDelta, HlrObject, LlrObject, MatrixRowObject, NormalizedStatus, ParseResults, RepoValidation, RequirementKind } from './types';
 import { buildNeighborhoodGraph } from './lib/graph';
 import { tokenizeMatrixRowText, MatrixRowTokenCategory } from './lib/matrixRowHighlighting';
+import { strongestStatus } from './lib/status';
 import { tokenizeRequirementText } from './lib/textTinting';
 
 const EMPTY_RESULTS: ParseResults = {
@@ -590,7 +591,7 @@ function summarizeRequirement(req: HlrObject | LlrObject, rows: MatrixRowObject[
     title: req.title,
     sourceFile: req.sourceFile,
     sourceLine: req.sourceLine,
-    status: matching[0]?.normalizedStatus || 'untraced' as NormalizedStatus,
+    status: strongestStatus(matching.map((row) => row.normalizedStatus)),
   };
 }
 
@@ -680,6 +681,11 @@ function RequirementDetail({
     return <EmptyState title="No requirement selected" body="Scan a valid checkout, then select a parsed HLR or LLR." />;
   }
 
+  const activeRowPaths = activeRow?.detectedPaths ?? [];
+  const requirementEvidencePaths = Array.from(new Set(rows.flatMap((row) => row.detectedPaths)));
+  const requirementStatus = strongestStatus(rows.map((row) => row.normalizedStatus));
+  const showTestedWithoutEvidenceWarning = requirementStatus === 'tested' && requirementEvidencePaths.length === 0;
+
   return (
     <div
       className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_6px_var(--right-width)]"
@@ -703,10 +709,16 @@ function RequirementDetail({
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold"><Table className="h-4 w-4" /> Matrix Rows</h3>
           {rows.length === 0 && <p className="text-sm text-rose-300">No matrix row exists; status is untraced.</p>}
           <div className="space-y-2">
-            {rows.map((row) => (
+            {rows.map((row) => {
+              const isActiveRow = row.rowNumber === activeRow?.rowNumber;
+              return (
               <div
                 key={row.rowNumber}
-                className="w-full rounded border border-slate-800 bg-[#0A0B0E] p-3 text-left text-xs hover:border-slate-700"
+                className={`w-full rounded border p-3 text-left text-xs ${
+                  isActiveRow
+                    ? 'border-sky-500/70 bg-sky-500/10 shadow-[inset_3px_0_0_rgba(56,189,248,0.75)]'
+                    : 'border-slate-800 bg-[#0A0B0E] hover:border-slate-700'
+                }`}
               >
                 <div className="flex items-center justify-between gap-3">
                   <span className="inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
@@ -715,12 +727,14 @@ function RequirementDetail({
                     </button>
                     <span className="text-slate-600">&middot;</span>
                     <MatrixRowSource row={row} linkContext={linkContext} />
+                    {isActiveRow && <span className="rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-sky-200">active row</span>}
                   </span>
                   <span className={`rounded border px-2 py-0.5 uppercase ${statusClass(row.normalizedStatus)}`}>{row.rawStatusText}</span>
                 </div>
                 <p className="mt-2 break-words font-mono text-slate-400"><MatrixRowText text={row.rawText} /></p>
               </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       </div>
@@ -735,10 +749,22 @@ function RequirementDetail({
       <aside className="space-y-5 pl-5">
         <LinkedRequirements linkedHlrs={linkedHlrs} linkedLlrs={linkedLlrs} requirement={requirement} />
         <section className="rounded border border-slate-800 bg-[#111419] p-4">
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold"><FileCode className="h-4 w-4" /> Evidence</h3>
-          {activeRow?.detectedPaths.length ? (
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold"><FileCode className="h-4 w-4" /> Requirement Evidence</h3>
+          {requirementEvidencePaths.length > 0 ? (
             <div className="space-y-2">
-              {activeRow.detectedPaths.map((path) => <p key={path} className="break-all rounded border border-slate-800 bg-[#0A0B0E] p-2 font-mono text-xs text-slate-300">{path}</p>)}
+              {requirementEvidencePaths.map((path) => <p key={path} className="break-all rounded border border-slate-800 bg-[#0A0B0E] p-2 font-mono text-xs text-slate-300">{path}</p>)}
+            </div>
+          ) : showTestedWithoutEvidenceWarning ? (
+            <p className="text-sm text-amber-200">Status is tested, but no evidence path was parsed for this requirement.</p>
+          ) : (
+            <p className="text-sm text-slate-500">No implementation or evidence path parsed for this requirement.</p>
+          )}
+        </section>
+        <section className="rounded border border-slate-800 bg-[#111419] p-4">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold"><FileCode className="h-4 w-4" /> Active Row Evidence</h3>
+          {activeRowPaths.length ? (
+            <div className="space-y-2">
+              {activeRowPaths.map((path) => <p key={path} className="break-all rounded border border-slate-800 bg-[#0A0B0E] p-2 font-mono text-xs text-slate-300">{path}</p>)}
             </div>
           ) : (
             <p className="text-sm text-slate-500">No implementation or evidence path named in the active matrix row.</p>
