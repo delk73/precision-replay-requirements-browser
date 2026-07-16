@@ -184,8 +184,7 @@ export function parseMatrix(rawText: string, filename: string): { rows: MatrixRo
     if (!trimmed || !trimmed.startsWith('|') || !trimmed.endsWith('|') || trimmed.includes(':---')) return;
 
     const cells = trimmed.split('|').map((part) => part.trim()).filter(Boolean);
-    const lowerCells = cells.map((part) => part.toLowerCase());
-    if (lowerCells.some((part) => part.includes('requirement') || part.includes('code component') || part.includes('implementation block'))) return;
+    if (isMatrixHeaderRow(cells)) return;
 
     const rowText = cells.join(' | ');
     const detectedHlrIds = extractIds(rowText, HLR_ID);
@@ -218,6 +217,24 @@ export function parseMatrix(rawText: string, filename: string): { rows: MatrixRo
   });
 
   return { rows, evidence };
+}
+
+function isMatrixHeaderRow(cells: string[]): boolean {
+  const headerLabels = new Set([
+    'requirement',
+    'hlr',
+    'llr',
+    'status',
+    'evidence',
+    'code component',
+    'implementation block',
+    'verification',
+  ]);
+  const normalizedCells = cells.map((cell) => cell.toLowerCase().replace(/\s+/g, ' ').trim());
+
+  return normalizedCells.length >= 2
+    && normalizedCells.every((cell) => headerLabels.has(cell))
+    && normalizedCells.includes('requirement');
 }
 
 function extractPaths(text: string): string[] {

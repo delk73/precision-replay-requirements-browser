@@ -170,6 +170,20 @@ assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-RE
 assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-TRACE-NEUTRAL-001'))?.normalizedStatus, 'traced');
 assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-BOUNDARY-001'))?.normalizedStatus, 'boundary_only');
 
+const groupedHeaderMatrix = parseMatrix([
+  '| Requirement | LLR | Status | Evidence |',
+  '| --- | --- | --- | --- |',
+  '| Replay schema ownership requirements | HLR-SCHEMA-OWNER-001, HLR-SCHEMA-OWNER-002 | LLR-SCHEMA-PARSE-001, LLR-SCHEMA-PARSE-002, LLR-SCHEMA-SERIALIZE-001 | Status: traced. The implementation block is owned by the schema code component and retains grouped coverage. | `docs/design/schema.md` |',
+].join('\n'), 'docs/normative/traceability_matrix.md');
+
+assert.equal(groupedHeaderMatrix.rows.length, 1);
+const groupedHeaderRow = groupedHeaderMatrix.rows[0];
+assert.deepEqual(groupedHeaderRow?.detectedHlrIds, ['HLR-SCHEMA-OWNER-001', 'HLR-SCHEMA-OWNER-002']);
+assert.deepEqual(groupedHeaderRow?.detectedLlrIds, ['LLR-SCHEMA-PARSE-001', 'LLR-SCHEMA-PARSE-002', 'LLR-SCHEMA-SERIALIZE-001']);
+assert.equal(groupedHeaderRow?.normalizedStatus, 'traced');
+assert.equal(groupedHeaderRow?.statusSource, 'explicit');
+assert.deepEqual(groupedHeaderRow?.detectedPaths, ['docs/design/schema.md']);
+
 const explicitStatusMatrix = parseMatrix([
   '| HLR-STATUS-PENDING-001 | LLR-STATUS-PENDING-001 | Status: pending. Implementation exists in prose but is not credited. |',
   '| HLR-STATUS-IMPLEMENTED-001 | LLR-STATUS-IMPLEMENTED-001 | Status: implemented. Retained checker verified and tested this path. |',
