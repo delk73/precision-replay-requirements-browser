@@ -184,6 +184,69 @@ assert.equal(groupedHeaderRow?.normalizedStatus, 'traced');
 assert.equal(groupedHeaderRow?.statusSource, 'explicit');
 assert.deepEqual(groupedHeaderRow?.detectedPaths, ['docs/design/schema.md']);
 
+const groupedAuditResults = parseRepoSources({
+  validation,
+  sourceFiles: [statusFor('docs/normative/HLR_math.md'), statusFor('docs/design/LLR_math.md'), statusFor('docs/normative/traceability_matrix.md')],
+  files: [
+    {
+      path: 'docs/normative/HLR_math.md',
+      required: true,
+      content: [
+        '### HLR-A',
+        'Requirement A.',
+        '### HLR-B',
+        'Requirement B.',
+        '### HLR-C',
+        'Requirement C.',
+      ].join('\n'),
+    },
+    {
+      path: 'docs/design/LLR_math.md',
+      required: true,
+      content: [
+        '### LLR-1',
+        'Design 1.',
+        'Traces-to: HLR-A',
+        '### LLR-2',
+        'Design 2.',
+        'Traces-to: HLR-B',
+        '### LLR-3',
+        'Design 3.',
+        'Traces-to: HLR-A, HLR-C',
+        '### LLR-4',
+        'Design 4.',
+        'Traces-to: HLR-C',
+        '### LLR-NO-TRACE',
+        'Design with no trace declaration.',
+      ].join('\n'),
+    },
+    {
+      path: 'docs/normative/traceability_matrix.md',
+      required: true,
+      content: [
+        '| Requirement | LLR | Status |',
+        '| --- | --- | --- |',
+        '| HLR-A, HLR-B | LLR-1, LLR-2 | Status: traced. |',
+        '| HLR-A, HLR-B | LLR-3 | Status: traced. |',
+        '| HLR-A, HLR-B | LLR-4 | Status: traced. |',
+        '| HLR-A | LLR-MISSING | Status: traced. |',
+        '| HLR-A | LLR-NO-TRACE | Status: traced. |',
+        '| HLR-A | | Status: traced. |',
+        '| | LLR-1 | Status: traced. |',
+      ].join('\n'),
+    },
+  ],
+});
+
+const groupedMismatches = groupedAuditResults.audits.filter((audit) => audit.category === 'Matrix Row HLR/LLR Mismatch');
+assert.deepEqual(groupedMismatches.map((audit) => `${audit.rowNumber}:${audit.llrId}`), ['3:LLR-4']);
+assert.match(groupedMismatches[0]?.message ?? '', /row HLR\(s\) HLR-A, HLR-B/);
+assert.match(groupedMismatches[0]?.message ?? '', /declares Traces-to HLR\(s\) HLR-C/);
+assert.ok(groupedAuditResults.audits.some((audit) => audit.category === 'Matrix ID Missing Definition' && audit.llrId === 'LLR-MISSING'));
+assert.ok(!groupedMismatches.some((audit) => audit.llrId === 'LLR-MISSING'));
+assert.ok(groupedAuditResults.audits.some((audit) => audit.category === 'Matrix Row LLR Missing Trace Declaration' && audit.llrId === 'LLR-NO-TRACE'));
+assert.ok(!groupedMismatches.some((audit) => audit.llrId === 'LLR-NO-TRACE'));
+
 const explicitStatusMatrix = parseMatrix([
   '| HLR-STATUS-PENDING-001 | LLR-STATUS-PENDING-001 | Status: pending. Implementation exists in prose but is not credited. |',
   '| HLR-STATUS-IMPLEMENTED-001 | LLR-STATUS-IMPLEMENTED-001 | Status: implemented. Retained checker verified and tested this path. |',
@@ -213,7 +276,7 @@ const statusGraph = buildNeighborhoodGraph(
   'LLR-REPLAY-CHECK-008',
   'llr',
   [{ id: 'HLR-REPLAY-CHECK-002', kind: 'hlr', title: 'Checker Parse Stage', text: '', sourceFile: 'docs/normative/HLR_replay.md', sourceLine: 1, rawSnippet: '' }],
-  [{ id: 'LLR-REPLAY-CHECK-008', kind: 'llr', title: 'Checked-In Entrypoint Stable Failure Diagnostics', text: '', sourceFile: 'docs/design/LLR_replay.md', sourceLine: 1, rawSnippet: '', tracedHlrIds: ['HLR-REPLAY-CHECK-002'] }],
+  [{ id: 'LLR-REPLAY-CHECK-008', kind: 'llr', title: 'Checked-In Entrypoint Stable Failure Diagnostics', text: '', sourceFile: 'docs/design/LLR_replay.md', sourceLine: 1, rawSnippet: '', tracedHlrIds: ['HLR-REPLAY-CHECK-002'], hasTraceDeclaration: true }],
   statusMatrix.rows,
   { includeLlrs: true, includeRows: true, includePaths: true, pendingOnly: false, evidenceBearingOnly: false },
 );

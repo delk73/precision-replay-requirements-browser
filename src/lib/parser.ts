@@ -143,10 +143,18 @@ function parseDefinitions(file: RawSourceFile, kind: 'hlr' | 'llr'): Array<HlrOb
     if (kind === 'hlr') {
       results.push({ ...current, kind: 'hlr', text, rawSnippet });
     } else {
+      const traceLines = blockLines.filter((line) => /traces[- ]to\s*:/i.test(line));
       const traces = blockLines
         .filter((line) => /traces[- ]to\s*:/i.test(line))
         .flatMap((line) => extractIds(line, HLR_ID));
-      results.push({ ...current, kind: 'llr', text, rawSnippet, tracedHlrIds: Array.from(new Set(traces)) });
+      results.push({
+        ...current,
+        kind: 'llr',
+        text,
+        rawSnippet,
+        tracedHlrIds: Array.from(new Set(traces)),
+        hasTraceDeclaration: traceLines.length > 0,
+      });
     }
   };
 
@@ -449,9 +457,17 @@ export function auditRepository(
         audits.push({ id: `matrix-llr-missing-${row.rowNumber}-${llrId}`, severity: 'Error', category: 'Matrix ID Missing Definition', rowNumber: row.rowNumber, llrId, sourceFile: row.sourceFile, message: `Matrix row ${row.rowNumber} references missing LLR definition ${llrId}.` });
         return;
       }
-      const missingHlrLinks = row.detectedHlrIds.filter((hlrId) => !llr.tracedHlrIds.includes(hlrId));
-      if (row.detectedHlrIds.length > 0 && missingHlrLinks.length > 0) {
-        audits.push({ id: `matrix-mismatch-${row.rowNumber}-${llrId}`, severity: 'Warning', category: 'Matrix Row HLR/LLR Mismatch', rowNumber: row.rowNumber, hlrId: missingHlrLinks[0], llrId, sourceFile: row.sourceFile, message: `Matrix row ${row.rowNumber} maps ${llrId} to HLR(s) not declared in its Traces-to line: ${missingHlrLinks.join(', ')}.` });
+      if (row.detectedHlrIds.length === 0) return;
+      if (!llr.hasTraceDeclaration) {
+        audits.push({ id: `matrix-llr-missing-trace-${row.rowNumber}-${llrId}`, severity: 'Warning', category: 'Matrix Row LLR Missing Trace Declaration', rowNumber: row.rowNumber, llrId, sourceFile: row.sourceFile, message: `Matrix row ${row.rowNumber} references ${llrId}, but that LLR has no parsed Traces-to declaration.` });
+        return;
+      }
+      const rowDefinedHlrIds = row.detectedHlrIds.filter((hlrId) => hlrDefMap.has(hlrId));
+      if (rowDefinedHlrIds.length === 0) return;
+      const declaredTraceHlrIds = llr.tracedHlrIds;
+      const matchingHlrLinks = rowDefinedHlrIds.filter((hlrId) => declaredTraceHlrIds.includes(hlrId));
+      if (declaredTraceHlrIds.length > 0 && matchingHlrLinks.length === 0) {
+        audits.push({ id: `matrix-mismatch-${row.rowNumber}-${llrId}`, severity: 'Warning', category: 'Matrix Row HLR/LLR Mismatch', rowNumber: row.rowNumber, hlrId: rowDefinedHlrIds[0], llrId, sourceFile: row.sourceFile, message: `Matrix row ${row.rowNumber} maps ${llrId} with row HLR(s) ${rowDefinedHlrIds.join(', ')}, but ${llrId} declares Traces-to HLR(s) ${declaredTraceHlrIds.join(', ')}.` });
       }
     });
   });

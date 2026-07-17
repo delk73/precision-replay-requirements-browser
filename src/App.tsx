@@ -668,7 +668,7 @@ function deltaToRequirement(delta: ComparisonDelta): HlrObject | LlrObject | nul
     sourceLine: delta.sourceLine || 1,
     rawSnippet: delta.rawSnippet || delta.text || delta.message,
   };
-  return delta.kind === 'hlr' ? { ...base, kind: 'hlr' } : { ...base, kind: 'llr', tracedHlrIds: [] };
+  return delta.kind === 'hlr' ? { ...base, kind: 'hlr' } : { ...base, kind: 'llr', tracedHlrIds: [], hasTraceDeclaration: false };
 }
 
 function Metric({ label, value }: { label: string; value: number }) {

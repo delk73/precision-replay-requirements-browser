@@ -47,6 +47,7 @@ export interface HlrObject extends RequirementDefinition {
 export interface LlrObject extends RequirementDefinition {
   kind: 'llr';
   tracedHlrIds: string[];
+  hasTraceDeclaration: boolean;
 }
 
 export interface MatrixRowObject {
