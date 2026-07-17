@@ -11,12 +11,12 @@ function categoryFor(text: string, tokenText: string): MatrixRowTokenCategory | 
   return tokenizeMatrixRowText(text).find((token) => token.text === tokenText)?.category;
 }
 
-const sampleRow = '| 48 | HLR-REPLAY-EVAL-002 | LLR-REPLAY-018 | not credited | src/replay/checker.ts | existing checker output is not credited as the broader replay-evaluation model |';
+const sampleRow = '| 48 | HLR-REPLAY-EVAL-002 | LLR-REPLAY-EVAL-018 | not credited | src/replay/checker.ts | existing checker output is not credited as the broader replay-evaluation model |';
 const sampleTokens = tokenizeMatrixRowText(sampleRow);
 
 assert.equal(sampleTokens.map((token) => token.text).join(''), sampleRow);
 assert.equal(categoryFor(sampleRow, 'HLR-REPLAY-EVAL-002'), 'hlrId');
-assert.equal(categoryFor(sampleRow, 'LLR-REPLAY-018'), 'llrId');
+assert.equal(categoryFor(sampleRow, 'LLR-REPLAY-EVAL-018'), 'llrId');
 assert.equal(categoryFor(sampleRow, 'src/replay/checker.ts'), 'path');
 assert.ok(categoriesFor(sampleRow, '|').every((category) => category === 'separator'));
 assert.ok(!sampleTokens.some((token) => token.text === '/' && token.category === 'separator'));
@@ -38,8 +38,13 @@ const lowercaseIds = 'hlr-replay-check-001 llr-replay-check-003';
 assert.equal(tokenizeMatrixRowText(lowercaseIds).map((token) => token.text).join(''), lowercaseIds);
 assert.ok(tokenizeMatrixRowText(lowercaseIds).every((token) => token.category === 'prose'));
 
+const proseIds = 'HLR-defined / LLR-defined boundary';
+assert.equal(tokenizeMatrixRowText(proseIds).map((token) => token.text).join(''), proseIds);
+assert.ok(tokenizeMatrixRowText(proseIds).every((token) => token.category === 'prose' || token.category === 'separator'));
+
 const deterministicA = tokenizeMatrixRowText(sampleRow);
 const deterministicB = tokenizeMatrixRowText(sampleRow);
 assert.deepEqual(deterministicA, deterministicB);
 
 console.log('matrix row highlighting tests passed');
+

@@ -5,8 +5,8 @@ export interface MatrixRowToken {
   category: MatrixRowTokenCategory;
 }
 
-const HLR_ID_PATTERN = /^HLR-[A-Z0-9-]+/;
-const LLR_ID_PATTERN = /^LLR-[A-Z0-9-]+/;
+const HLR_ID_PATTERN = /^HLR-[A-Z0-9]+(?:-[A-Z0-9]+)+-\d+/;
+const LLR_ID_PATTERN = /^LLR-[A-Z0-9]+(?:-[A-Z0-9]+)+-\d+/;
 const PATH_PATTERN = /^(?:(?:docs|src|tests|tools|proof|proofs|artifacts|verification)\/[\w./-]*[\w-])/;
 
 function findBacktickEnd(text: string, start: number): number {

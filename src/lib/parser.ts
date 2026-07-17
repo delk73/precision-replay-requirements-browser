@@ -26,17 +26,23 @@ export interface ParseInput {
   files: RawSourceFile[];
 }
 
-const HLR_ID = /HLR-[A-Z0-9-]+/gi;
-const LLR_ID = /LLR-[A-Z0-9-]+/gi;
-const HLR_HEADING = /^(#{2,6})\s+(HLR-[A-Z0-9-]+):?\s*(.*)$/i;
-const LLR_HEADING = /^(#{2,6})\s+(LLR-[A-Z0-9-]+):?\s*(.*)$/i;
+const CANONICAL_HLR_ID = 'HLR-[A-Z0-9]+(?:-[A-Z0-9]+)+-\\d+';
+const CANONICAL_LLR_ID = 'LLR-[A-Z0-9]+(?:-[A-Z0-9]+)+-\\d+';
+const HLR_ID = new RegExp(`(?:^|[^A-Z0-9-])(${CANONICAL_HLR_ID})(?=$|[^A-Z0-9-])`, 'gi');
+const LLR_ID = new RegExp(`(?:^|[^A-Z0-9-])(${CANONICAL_LLR_ID})(?=$|[^A-Z0-9-])`, 'gi');
+const HLR_HEADING = new RegExp(`^(#{2,6})\\s+(${CANONICAL_HLR_ID}):?\\s*(.*)$`, 'i');
+const LLR_HEADING = new RegExp(`^(#{2,6})\\s+(${CANONICAL_LLR_ID}):?\\s*(.*)$`, 'i');
 const CANONICAL_EXPLICIT_STATUSES = ['pending', 'implemented', 'tested', 'proof_partial', 'boundary_only', 'traced'] as const;
 const EXPLICIT_STATUS = /\bstatus\s*:\s*([a-z_]+)\b/i;
 
 export function extractIds(text: string, pattern: RegExp): string[] {
-  const matches = text.match(new RegExp(pattern.source, 'gi'));
-  if (!matches) return [];
-  return Array.from(new Set(matches.map((id) => id.toUpperCase())));
+  const ids = new Set<string>();
+  const matcher = new RegExp(pattern.source, 'gi');
+  let match: RegExpExecArray | null;
+  while ((match = matcher.exec(text))) {
+    ids.add((match[1] ?? match[0]).toUpperCase());
+  }
+  return Array.from(ids);
 }
 
 export function normalizeStatus(rawStatusText: string, options: { rowExists?: boolean } = {}): NormalizedStatus {

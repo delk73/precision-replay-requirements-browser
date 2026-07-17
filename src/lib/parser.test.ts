@@ -36,12 +36,12 @@ const files: RawSourceFile[] = [
   {
     path: 'docs/normative/HLR_math.md',
     required: true,
-    content: '### HLR-MATH-001\nMath requirement.',
+    content: '### HLR-MATH-CORE-001\nMath requirement.',
   },
   {
     path: 'docs/normative/HLR_replay.md',
     required: true,
-    content: '### HLR-REPLAY-001\nReplay requirement.',
+    content: '### HLR-REPLAY-SYS-001\nReplay requirement.',
   },
   {
     path: 'docs/normative/HLR_target_io.md',
@@ -51,17 +51,17 @@ const files: RawSourceFile[] = [
   {
     path: 'docs/normative/HLR_witness.md',
     required: true,
-    content: '### HLR-WITNESS-001\nWitness requirement.',
+    content: '### HLR-WITNESS-ENV-001\nWitness requirement.',
   },
   {
     path: 'docs/design/LLR_math.md',
     required: true,
-    content: '### LLR-MATH-001\nMath design.\nTraces-to: HLR-MATH-001',
+    content: '### LLR-MATH-CORE-001\nMath design.\nTraces-to: HLR-MATH-CORE-001',
   },
   {
     path: 'docs/design/LLR_replay.md',
     required: true,
-    content: '### LLR-REPLAY-001\nReplay design.\nTraces-to: HLR-REPLAY-001',
+    content: '### LLR-REPLAY-SYS-001\nReplay design.\nTraces-to: HLR-REPLAY-SYS-001',
   },
   {
     path: 'docs/design/LLR_target_io.md',
@@ -73,13 +73,13 @@ const files: RawSourceFile[] = [
       '',
       '### LLR-RUNNER-WITNESS-001',
       'Runner witness design.',
-      'Traces-to: HLR-WITNESS-001',
+      'Traces-to: HLR-WITNESS-ENV-001',
     ].join('\n'),
   },
   {
     path: 'docs/design/LLR_witness.md',
     required: true,
-    content: '### LLR-WITNESS-001\nWitness design.\nTraces-to: HLR-WITNESS-001',
+    content: '### LLR-WITNESS-ENV-001\nWitness design.\nTraces-to: HLR-WITNESS-ENV-001',
   },
   {
     path: 'docs/normative/traceability_matrix.md',
@@ -88,7 +88,7 @@ const files: RawSourceFile[] = [
       '| Requirement | LLR | Status | Evidence |',
       '| --- | --- | --- | --- |',
       '| HLR-TARGET-IO-001 | LLR-TARGET-IO-001 | Implemented | `src/target_io.rs` |',
-      '| HLR-MATH-001 | LLR-TARGET-IO-001 | Implemented | `src/mismatch.rs` |',
+      '| HLR-MATH-CORE-001 | LLR-TARGET-IO-001 | Implemented | `src/mismatch.rs` |',
       '| HLR-NOT-DEFINED-001 | LLR-REFERENCE-ONLY-001 | Pending | |',
     ].join('\n'),
   },
@@ -127,7 +127,7 @@ const missingSourceResults = parseRepoSources({
   sourceFiles: sourceFiles.map((file) => file.path === 'docs/normative/HLR_witness.md' ? { ...file, loaded: false, reason: 'not found' } : file),
   files: files.filter((file) => file.path !== 'docs/normative/HLR_witness.md'),
 });
-assert.ok(missingSourceResults.missingIds.some((missing) => missing.id === 'HLR-WITNESS-001' && missing.state === 'source_not_loaded'));
+assert.ok(missingSourceResults.missingIds.some((missing) => missing.id === 'HLR-WITNESS-ENV-001' && missing.state === 'source_not_loaded'));
 
 const noExpectedSources = parseRepoSources({
   validation,
@@ -152,14 +152,71 @@ statusExamples.forEach(([text, expected]) => {
   assert.equal(normalizeStatus(text, { rowExists: expected === 'traced' }), expected);
 });
 
+const proseOnlyMatrix = parseMatrix(
+  '| HLR-defined / LLR, implementation, and verification pending. |',
+  'docs/normative/traceability_matrix.md',
+);
+assert.equal(proseOnlyMatrix.rows.length, 0);
+
+const canonicalBoundaryMatrix = parseMatrix([
+  '| Requirement | LLR | Status |',
+  '| --- | --- | --- |',
+  '| **HLR-REPLAY-OPS-001** / **LLR-REPLAY-EXEC-006** | Status: traced. |',
+  '| HLR-MATH-OPS-002 / LLR-WITNESS-ENV-001 | Status: traced. |',
+  '| HLR-REPLAY LLR-EXEC HLR-REPLAY-SYS | Status: traced. |',
+  '| `HLR-REPLAY-UNKNOWN-999`, (**LLR-MATH-OPS-999**). | Status: traced. |',
+  '| XHLR-REPLAY-OPS-001 HLR-REPLAY-OPS-001X | Status: traced. |',
+].join('\n'), 'docs/normative/traceability_matrix.md');
+
+assert.deepEqual(canonicalBoundaryMatrix.rows[0]?.detectedHlrIds, ['HLR-REPLAY-OPS-001']);
+assert.deepEqual(canonicalBoundaryMatrix.rows[0]?.detectedLlrIds, ['LLR-REPLAY-EXEC-006']);
+assert.deepEqual(canonicalBoundaryMatrix.rows[1]?.detectedHlrIds, ['HLR-MATH-OPS-002']);
+assert.deepEqual(canonicalBoundaryMatrix.rows[1]?.detectedLlrIds, ['LLR-WITNESS-ENV-001']);
+assert.equal(canonicalBoundaryMatrix.rows.some((row) => row.rawText.includes('HLR-REPLAY LLR-EXEC HLR-REPLAY-SYS')), false);
+assert.deepEqual(canonicalBoundaryMatrix.rows[2]?.detectedHlrIds, ['HLR-REPLAY-UNKNOWN-999']);
+assert.deepEqual(canonicalBoundaryMatrix.rows[2]?.detectedLlrIds, ['LLR-MATH-OPS-999']);
+assert.equal(canonicalBoundaryMatrix.rows.some((row) => row.rawText.includes('XHLR-REPLAY-OPS-001')), false);
+
+const unknownCanonicalResults = parseRepoSources({
+  validation,
+  sourceFiles: [statusFor('docs/normative/HLR_math.md'), statusFor('docs/normative/traceability_matrix.md')],
+  files: [
+    { path: 'docs/normative/HLR_math.md', required: true, content: '### HLR-MATH-OPS-002\nKnown math requirement.' },
+    { path: 'docs/normative/traceability_matrix.md', required: true, content: '| HLR-REPLAY-UNKNOWN-999 | Status: traced. |' },
+  ],
+});
+assert.ok(unknownCanonicalResults.audits.some((audit) => audit.category === 'Matrix ID Missing Definition' && audit.hlrId === 'HLR-REPLAY-UNKNOWN-999'));
+
+const falseDefinedResults = parseRepoSources({
+  validation,
+  sourceFiles: [statusFor('docs/normative/HLR_math.md'), statusFor('docs/design/LLR_math.md'), statusFor('docs/normative/traceability_matrix.md')],
+  files: [
+    { path: 'docs/normative/HLR_math.md', required: true, content: '### HLR-MATH-OPS-002\nKnown math requirement.' },
+    { path: 'docs/design/LLR_math.md', required: true, content: '### LLR-MATH-OPS-002\nKnown math design.\nTraces-to: HLR-MATH-OPS-002' },
+    {
+      path: 'docs/normative/traceability_matrix.md',
+      required: true,
+      content: [
+        '| Requirement | LLR | Status |',
+        '| --- | --- | --- |',
+        '| HLR-MATH-OPS-002 | LLR-MATH-OPS-002 | Status: pending. HLR-defined / LLR-defined, implementation, and verification pending. |',
+        '| HLR-MATH-OPS-002 | LLR-MATH-OPS-002 | Status: boundary_only. HLR-defined boundary. |',
+        '| HLR-MATH-OPS-002 | LLR-MATH-OPS-002 | Status: pending. LLR-defined verification pending. |',
+      ].join('\n'),
+    },
+  ],
+});
+assert.equal(falseDefinedResults.missingIds.some((missing) => missing.id === 'HLR-DEFINED' || missing.id === 'LLR-DEFINED'), false);
+assert.equal(falseDefinedResults.audits.some((audit) => audit.hlrId === 'HLR-DEFINED' || audit.llrId === 'LLR-DEFINED'), false);
+
 const statusMatrix = parseMatrix([
   '| HLR-MATH-REP-001 | LLR-MATH-REP-001 | Maps the fixed-point storage structure. |',
   '| HLR-MATH-REP-002 | LLR-MATH-REP-002 | Defines the fractional scaling constant. |',
   '| HLR-MATH-REP-003 | LLR-MATH-REP-003 | Establishes the current binary interoperability surface. |',
-  '| HLR-REPLAY-RETAINED-RUN-001 | LLR-REPLAY-011 | Implementation and verification are pending. |',
+  '| HLR-REPLAY-RETAINED-RUN-001 | LLR-REPLAY-RETAINED-011 | Implementation and verification are pending. |',
   '| HLR-REPLAY-CHECK-002 | LLR-REPLAY-CHECK-008 | Black-box covers the checked-in Rust replay checker command boundary for successful witness output. | core/examples/replay_check.rs |',
   '| HLR-TRACE-NEUTRAL-001 | LLR-TRACE-NEUTRAL-001 | Neutral traceability text. |',
-  '| HLR-BOUNDARY-001 | LLR-BOUNDARY-001 | Evidence-boundary row excludes broader behavior. |',
+  '| HLR-BOUNDARY-CHECK-001 | LLR-BOUNDARY-CHECK-001 | Evidence-boundary row excludes broader behavior. |',
 ].join('\n'), 'docs/normative/traceability_matrix.md');
 
 assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-MATH-REP-001'))?.normalizedStatus, 'implemented');
@@ -168,7 +225,7 @@ assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-MA
 assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-REPLAY-RETAINED-RUN-001'))?.normalizedStatus, 'pending');
 assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-REPLAY-CHECK-002'))?.normalizedStatus, 'tested');
 assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-TRACE-NEUTRAL-001'))?.normalizedStatus, 'traced');
-assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-BOUNDARY-001'))?.normalizedStatus, 'boundary_only');
+assert.equal(statusMatrix.rows.find((row) => row.detectedHlrIds.includes('HLR-BOUNDARY-CHECK-001'))?.normalizedStatus, 'boundary_only');
 
 const groupedHeaderMatrix = parseMatrix([
   '| Requirement | LLR | Status | Evidence |',
@@ -192,11 +249,11 @@ const groupedAuditResults = parseRepoSources({
       path: 'docs/normative/HLR_math.md',
       required: true,
       content: [
-        '### HLR-A',
+        '### HLR-TEST-A-001',
         'Requirement A.',
-        '### HLR-B',
+        '### HLR-TEST-B-001',
         'Requirement B.',
-        '### HLR-C',
+        '### HLR-TEST-C-001',
         'Requirement C.',
       ].join('\n'),
     },
@@ -204,19 +261,19 @@ const groupedAuditResults = parseRepoSources({
       path: 'docs/design/LLR_math.md',
       required: true,
       content: [
-        '### LLR-1',
+        '### LLR-TEST-ONE-001',
         'Design 1.',
-        'Traces-to: HLR-A',
-        '### LLR-2',
+        'Traces-to: HLR-TEST-A-001',
+        '### LLR-TEST-TWO-001',
         'Design 2.',
-        'Traces-to: HLR-B',
-        '### LLR-3',
+        'Traces-to: HLR-TEST-B-001',
+        '### LLR-TEST-THREE-001',
         'Design 3.',
-        'Traces-to: HLR-A, HLR-C',
-        '### LLR-4',
+        'Traces-to: HLR-TEST-A-001, HLR-TEST-C-001',
+        '### LLR-TEST-FOUR-001',
         'Design 4.',
-        'Traces-to: HLR-C',
-        '### LLR-NO-TRACE',
+        'Traces-to: HLR-TEST-C-001',
+        '### LLR-TEST-NOTRACE-001',
         'Design with no trace declaration.',
       ].join('\n'),
     },
@@ -226,26 +283,26 @@ const groupedAuditResults = parseRepoSources({
       content: [
         '| Requirement | LLR | Status |',
         '| --- | --- | --- |',
-        '| HLR-A, HLR-B | LLR-1, LLR-2 | Status: traced. |',
-        '| HLR-A, HLR-B | LLR-3 | Status: traced. |',
-        '| HLR-A, HLR-B | LLR-4 | Status: traced. |',
-        '| HLR-A | LLR-MISSING | Status: traced. |',
-        '| HLR-A | LLR-NO-TRACE | Status: traced. |',
-        '| HLR-A | | Status: traced. |',
-        '| | LLR-1 | Status: traced. |',
+        '| HLR-TEST-A-001, HLR-TEST-B-001 | LLR-TEST-ONE-001, LLR-TEST-TWO-001 | Status: traced. |',
+        '| HLR-TEST-A-001, HLR-TEST-B-001 | LLR-TEST-THREE-001 | Status: traced. |',
+        '| HLR-TEST-A-001, HLR-TEST-B-001 | LLR-TEST-FOUR-001 | Status: traced. |',
+        '| HLR-TEST-A-001 | LLR-TEST-MISSING-001 | Status: traced. |',
+        '| HLR-TEST-A-001 | LLR-TEST-NOTRACE-001 | Status: traced. |',
+        '| HLR-TEST-A-001 | | Status: traced. |',
+        '| | LLR-TEST-ONE-001 | Status: traced. |',
       ].join('\n'),
     },
   ],
 });
 
 const groupedMismatches = groupedAuditResults.audits.filter((audit) => audit.category === 'Matrix Row HLR/LLR Mismatch');
-assert.deepEqual(groupedMismatches.map((audit) => `${audit.rowNumber}:${audit.llrId}`), ['3:LLR-4']);
-assert.match(groupedMismatches[0]?.message ?? '', /row HLR\(s\) HLR-A, HLR-B/);
-assert.match(groupedMismatches[0]?.message ?? '', /declares Traces-to HLR\(s\) HLR-C/);
-assert.ok(groupedAuditResults.audits.some((audit) => audit.category === 'Matrix ID Missing Definition' && audit.llrId === 'LLR-MISSING'));
-assert.ok(!groupedMismatches.some((audit) => audit.llrId === 'LLR-MISSING'));
-assert.ok(groupedAuditResults.audits.some((audit) => audit.category === 'Matrix Row LLR Missing Trace Declaration' && audit.llrId === 'LLR-NO-TRACE'));
-assert.ok(!groupedMismatches.some((audit) => audit.llrId === 'LLR-NO-TRACE'));
+assert.deepEqual(groupedMismatches.map((audit) => `${audit.rowNumber}:${audit.llrId}`), ['3:LLR-TEST-FOUR-001']);
+assert.match(groupedMismatches[0]?.message ?? '', /row HLR\(s\) HLR-TEST-A-001, HLR-TEST-B-001/);
+assert.match(groupedMismatches[0]?.message ?? '', /declares Traces-to HLR\(s\) HLR-TEST-C-001/);
+assert.ok(groupedAuditResults.audits.some((audit) => audit.category === 'Matrix ID Missing Definition' && audit.llrId === 'LLR-TEST-MISSING-001'));
+assert.ok(!groupedMismatches.some((audit) => audit.llrId === 'LLR-TEST-MISSING-001'));
+assert.ok(groupedAuditResults.audits.some((audit) => audit.category === 'Matrix Row LLR Missing Trace Declaration' && audit.llrId === 'LLR-TEST-NOTRACE-001'));
+assert.ok(!groupedMismatches.some((audit) => audit.llrId === 'LLR-TEST-NOTRACE-001'));
 
 const explicitStatusMatrix = parseMatrix([
   '| HLR-STATUS-PENDING-001 | LLR-STATUS-PENDING-001 | Status: pending. Implementation exists in prose but is not credited. |',
