@@ -35,7 +35,9 @@ const comparisonResults: ParseResults = {
     compareRef: 'docs/replay-system-contract',
     deltas: [
       { id: 'HLR-A-001', kind: 'hlr', change: 'added', message: 'Added HLR.' },
+      { id: 'HLR-A-001', kind: 'hlr', change: 'status_changed', message: 'Status changed for the same HLR.' },
       { id: 'LLR-A-001', kind: 'llr', change: 'added', message: 'Added LLR.' },
+      { id: 'LLR-A-001', kind: 'llr', change: 'status_changed', message: 'Status changed for the same LLR.' },
       { id: '1', kind: 'matrix_row', change: 'added', message: 'Added row.' },
       { id: 'HLR-B-001', kind: 'hlr', change: 'changed', message: 'Changed HLR.' },
       { id: '2', kind: 'matrix_row', change: 'status_changed', message: 'Status changed.' },
@@ -43,9 +45,9 @@ const comparisonResults: ParseResults = {
   },
 };
 
-assert.deepEqual(buildActiveDiffSummary(comparisonResults, 'all'), { hlrCount: 2, llrCount: 1, rowCount: 2 });
-assert.deepEqual(buildActiveDiffSummary(comparisonResults, 'added'), { hlrCount: 1, llrCount: 1, rowCount: 1 });
-assert.deepEqual(buildActiveDiffSummary(comparisonResults, 'changed'), { hlrCount: 1, llrCount: 0, rowCount: 0 });
-assert.deepEqual(buildActiveDiffSummary(comparisonResults, 'status_changed'), { hlrCount: 0, llrCount: 0, rowCount: 1 });
+assert.deepEqual(buildActiveDiffSummary(comparisonResults, 'all'), { hlrCount: 2, llrCount: 1, activeDeltaCount: 7, totalDeltaCount: 7 });
+assert.deepEqual(buildActiveDiffSummary(comparisonResults, 'added'), { hlrCount: 1, llrCount: 1, activeDeltaCount: 3, totalDeltaCount: 7 });
+assert.deepEqual(buildActiveDiffSummary(comparisonResults, 'changed'), { hlrCount: 1, llrCount: 0, activeDeltaCount: 1, totalDeltaCount: 7 });
+assert.deepEqual(buildActiveDiffSummary(comparisonResults, 'status_changed'), { hlrCount: 1, llrCount: 1, activeDeltaCount: 3, totalDeltaCount: 7 });
 
 console.log('active diff summary tests passed');

@@ -369,6 +369,12 @@ export default function App() {
   const totalRequired = results.sourceFiles.filter((file) => file.required).length;
   const diffLabels = useMemo(() => buildDiffLabels(results, repoRef, compareRef), [results, repoRef, compareRef]);
   const activeDiffSummary = useMemo(() => buildActiveDiffSummary(results, activeDiffFilter), [results, activeDiffFilter]);
+  const hasSearchQuery = searchQuery.trim().length > 0;
+  const visibleRequirementSummary = useMemo(() => ({
+    hlrCount: requirements.filter((req) => req.kind === 'hlr').length,
+    llrCount: requirements.filter((req) => req.kind === 'llr').length,
+    requirementCount: requirements.length,
+  }), [requirements]);
 
   const selectRequirement = (id: string, kind: RequirementKind) => {
     setSelectedId(id);
@@ -446,9 +452,29 @@ export default function App() {
         <aside className="flex min-h-0 flex-col border-r border-slate-800 bg-[#111419]/70">
           <div className="border-b border-slate-800 p-4">
             <div className="mb-3 grid grid-cols-3 gap-2 text-center text-xs">
-              <Metric label="HLR" value={results.hlrs.length} secondary={activeDiffSummary ? `${activeDiffSummary.hlrCount} in active diff` : 'no comparison'} />
-              <Metric label="LLR" value={results.llrs.length} secondary={activeDiffSummary ? `${activeDiffSummary.llrCount} in active diff` : 'no comparison'} />
-              <Metric label="Rows" value={results.matrixRows.length} secondary={activeDiffSummary ? `${activeDiffSummary.rowCount} in active diff` : 'no comparison'} />
+              {activeDiffSummary ? (
+                <>
+                  <Metric label="HLR affected" value={activeDiffSummary.hlrCount} secondary={`${results.hlrs.length} total`} />
+                  <Metric label="LLR affected" value={activeDiffSummary.llrCount} secondary={`${results.llrs.length} total`} />
+                  <Metric label={compactDiffLabel(activeDiffFilter)} value={activeDiffSummary.activeDeltaCount} secondary={`${activeDiffSummary.totalDeltaCount} total deltas`} />
+                </>
+              ) : (
+                <>
+                  {hasSearchQuery ? (
+                    <>
+                      <Metric label="HLR shown" value={visibleRequirementSummary.hlrCount} secondary={`${results.hlrs.length} total`} />
+                      <Metric label="LLR shown" value={visibleRequirementSummary.llrCount} secondary={`${results.llrs.length} total`} />
+                      <Metric label="Requirements shown" value={visibleRequirementSummary.requirementCount} secondary={`${results.hlrs.length + results.llrs.length} total`} />
+                    </>
+                  ) : (
+                    <>
+                      <Metric label="HLR" value={results.hlrs.length} secondary="no comparison" />
+                      <Metric label="LLR" value={results.llrs.length} secondary="no comparison" />
+                      <Metric label="Rows" value={results.matrixRows.length} secondary="no comparison" />
+                    </>
+                  )}
+                </>
+              )}
             </div>
             <div className={`rounded border p-3 text-xs ${results.validation.ok ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-rose-500/30 bg-rose-500/5'}`}>
               <div className="flex items-center gap-2 font-semibold">
@@ -652,6 +678,16 @@ function buildDiffLabels(results: ParseResults, fallbackBase: string, fallbackCo
   };
 }
 
+function compactDiffLabel(activeDiffFilter: DiffFilter): string {
+  return {
+    all: 'All deltas',
+    added: 'Only in compare',
+    removed: 'Only in base',
+    changed: 'Definition differs',
+    status_changed: 'Status differs',
+  }[activeDiffFilter];
+}
+
 export function summarizeDelta(delta: ComparisonDelta, hlrs: HlrObject[], llrs: LlrObject[], rows: MatrixRowObject[]): RequirementSummary {
   const loadedRequirement = delta.kind === 'hlr'
     ? hlrs.find((hlr) => hlr.id === delta.id)
@@ -671,15 +707,16 @@ export function summarizeDelta(delta: ComparisonDelta, hlrs: HlrObject[], llrs: 
   };
 }
 
-export function buildActiveDiffSummary(results: ParseResults, activeDiffFilter: DiffFilter): { hlrCount: number; llrCount: number; rowCount: number } | null {
+export function buildActiveDiffSummary(results: ParseResults, activeDiffFilter: DiffFilter): { hlrCount: number; llrCount: number; activeDeltaCount: number; totalDeltaCount: number } | null {
   if (!results.comparison) return null;
   const activeDeltas = activeDiffFilter === 'all'
     ? results.comparison.deltas
     : results.comparison.deltas.filter((delta) => delta.change === activeDiffFilter);
   return {
-    hlrCount: activeDeltas.filter((delta) => delta.kind === 'hlr').length,
-    llrCount: activeDeltas.filter((delta) => delta.kind === 'llr').length,
-    rowCount: activeDeltas.filter((delta) => delta.kind === 'matrix_row').length,
+    hlrCount: new Set(activeDeltas.filter((delta) => delta.kind === 'hlr').map((delta) => delta.id)).size,
+    llrCount: new Set(activeDeltas.filter((delta) => delta.kind === 'llr').map((delta) => delta.id)).size,
+    activeDeltaCount: activeDeltas.length,
+    totalDeltaCount: results.comparison.deltas.length,
   };
 }
 
