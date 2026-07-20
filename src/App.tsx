@@ -745,12 +745,12 @@ function isImplementationEvidencePath(path: string): boolean {
   return Boolean(path) && !/^(docs|doc)\//i.test(path) && !/\.md$/i.test(path);
 }
 
-type SidebarItem =
+export type SidebarItem =
   | { type: 'section'; key: string; label: string }
   | { type: 'bucket'; key: string; label: string }
   | { type: 'requirement'; req: RequirementSummary; groupKey?: string };
 
-function buildSidebarItems(requirements: RequirementSummary[]): SidebarItem[] {
+export function buildSidebarItems(requirements: RequirementSummary[]): SidebarItem[] {
   const replayHlrs = requirements.filter((req) => req.kind === 'hlr' && req.id.startsWith('HLR-REPLAY-'));
   const replayLlrs = requirements.filter((req) => req.kind === 'llr' && req.id.startsWith('LLR-REPLAY-'));
   const otherRequirements = requirements.filter((req) => !req.id.includes('-REPLAY-'));
