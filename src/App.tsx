@@ -14,6 +14,7 @@ import {
 import { AuditItem, ComparisonDelta, HlrObject, LlrObject, MatrixRowObject, NormalizedStatus, ParseResults, RepoValidation, RequirementKind } from './types';
 import { buildNeighborhoodGraph } from './lib/graph';
 import { tokenizeMatrixRowText, MatrixRowTokenCategory } from './lib/matrixRowHighlighting';
+import { REPLAY_PRESENTATION_PROFILE } from './lib/replayPresentation';
 import { DerivedImplementationStatus, DerivedTraceStatus, deriveImplementationStatus, deriveTraceStatus } from './lib/status';
 import { tokenizeRequirementText } from './lib/textTinting';
 
@@ -35,7 +36,6 @@ type Tab = 'requirements' | 'trace' | 'audit' | 'work';
 type DiffFilter = 'all' | 'added' | 'removed' | 'changed' | 'status_changed';
 type RequirementSummary = ReturnType<typeof summarizeRequirement>;
 type MatrixRowLinkContext = Pick<RepoValidation, 'repoUrl' | 'resolvedSha'>;
-type ReplayStoryBucket = { key: string; label: string; match: (id: string) => boolean };
 
 const DEFAULT_REPO_URL = 'https://github.com/delk73/precision-replay.git';
 const DEFAULT_REF = 'main';
@@ -43,48 +43,6 @@ const DEFAULT_LEFT_WIDTH = 380;
 const DEFAULT_RIGHT_WIDTH = 360;
 const TRACE_STATUS_BREAKDOWN_ORDER: DerivedTraceStatus[] = ['traced', 'pending', 'untraced', 'unknown'];
 const IMPLEMENTATION_STATUS_BREAKDOWN_ORDER: DerivedImplementationStatus[] = ['tested', 'proof_partial', 'implemented', 'boundary_only', 'pending', 'unknown'];
-const REPLAY_STORY_BUCKETS: ReplayStoryBucket[] = [
-  { key: 'system', label: 'System', match: (id) => id.startsWith('HLR-REPLAY-SYS-') },
-  { key: 'schema', label: 'Schema', match: (id) => id.startsWith('HLR-REPLAY-SCHEMA-') },
-  {
-    key: 'canonical-input',
-    label: 'Canonical Input Boundary',
-    match: (id) => id.startsWith('HLR-REPLAY-ORIGIN-'),
-  },
-  {
-    key: 'run',
-    label: 'Retained Run',
-    match: (id) => id.startsWith('HLR-REPLAY-RUN-') && !id.endsWith('-002') && !id.endsWith('-007') && !id.endsWith('-008'),
-  },
-  {
-    key: 'validation',
-    label: 'Validation',
-    match: (id) => id === 'HLR-REPLAY-RUN-002' || id === 'HLR-REPLAY-RUN-007' || id === 'HLR-REPLAY-RUN-008',
-  },
-  {
-    key: 'execution-record',
-    label: 'Execution Record',
-    match: (id) => id.startsWith('HLR-REPLAY-EXEC-') && !/^HLR-REPLAY-EXEC-00[1-6]$/.test(id),
-  },
-  { key: 'trace', label: 'Trace', match: (id) => id.startsWith('HLR-REPLAY-TRACE-') },
-  { key: 'comparison', label: 'Comparison', match: (id) => id.startsWith('HLR-REPLAY-COMP-') },
-  { key: 'profile', label: 'Target Profile', match: (id) => id.startsWith('HLR-REPLAY-TPROF-') },
-  { key: 'timing', label: 'Timing', match: (id) => id.startsWith('HLR-REPLAY-TIME-') },
-  { key: 'evaluation', label: 'Evaluation', match: (id) => id.startsWith('HLR-REPLAY-EVAL-') },
-  {
-    key: 'operations',
-    label: 'Operations',
-    match: (id) => id.startsWith('HLR-REPLAY-OPS-') && id !== 'HLR-REPLAY-OPS-004' && id !== 'HLR-REPLAY-OPS-005',
-  },
-  { key: 'envelope', label: 'Envelope', match: (id) => id === 'HLR-REPLAY-OPS-004' || id === 'HLR-REPLAY-OPS-005' },
-  { key: 'target', label: 'Target Agreement', match: (id) => id.startsWith('HLR-REPLAY-TGT-') },
-];
-const REPLAY_PLUMBING_BUCKETS: ReplayStoryBucket[] = [
-  { key: 'parse', label: 'Parse', match: (id) => id.startsWith('HLR-REPLAY-PARSE-') },
-  { key: 'projection', label: 'Projection', match: (id) => id.startsWith('HLR-REPLAY-PROJ-') },
-  { key: 'checker', label: 'Checker', match: (id) => id.startsWith('HLR-REPLAY-CHECK-') },
-  { key: 'initial-math', label: 'Initial Math Execution', match: (id) => /^HLR-REPLAY-EXEC-00[1-6]$/.test(id) },
-];
 
 function resolveCompareRef(baseRef: string, requestedCompareRef: string, branches: string[], preferredFallback = ''): string {
   const fallbackCandidates = [preferredFallback, ...branches].filter((branch) => branch && branch !== baseRef);
@@ -800,23 +758,24 @@ function buildSidebarItems(requirements: RequirementSummary[]): SidebarItem[] {
   if (!hasReplayStory) return requirements.map((req) => ({ type: 'requirement', req }));
 
   const items: SidebarItem[] = [];
+  const { storyBuckets, plumbingBuckets, storySectionLabel, plumbingSectionLabel } = REPLAY_PRESENTATION_PROFILE;
 
-  if (replayHlrs.some((req) => REPLAY_STORY_BUCKETS.some((bucket) => bucket.match(req.id)))) {
-    items.push({ type: 'section', key: 'replay-story-section', label: 'Replay Story' });
+  if (replayHlrs.some((req) => storyBuckets.some((bucket) => bucket.match(req.id)))) {
+    items.push({ type: 'section', key: 'replay-story-section', label: storySectionLabel });
   }
 
-  REPLAY_STORY_BUCKETS.forEach((bucket) => {
+  storyBuckets.forEach((bucket) => {
     const bucketRequirements = replayHlrs.filter((req) => bucket.match(req.id));
     if (bucketRequirements.length === 0) return;
     items.push({ type: 'bucket', key: bucket.key, label: bucket.label });
     bucketRequirements.forEach((req) => items.push({ type: 'requirement', req, groupKey: bucket.key }));
   });
 
-  if (replayHlrs.some((req) => REPLAY_PLUMBING_BUCKETS.some((bucket) => bucket.match(req.id)))) {
-    items.push({ type: 'section', key: 'replay-plumbing-section', label: 'Existing Replay Plumbing' });
+  if (replayHlrs.some((req) => plumbingBuckets.some((bucket) => bucket.match(req.id)))) {
+    items.push({ type: 'section', key: 'replay-plumbing-section', label: plumbingSectionLabel });
   }
 
-  REPLAY_PLUMBING_BUCKETS.forEach((bucket) => {
+  plumbingBuckets.forEach((bucket) => {
     const bucketRequirements = replayHlrs.filter((req) => bucket.match(req.id));
     if (bucketRequirements.length === 0) return;
     items.push({ type: 'bucket', key: bucket.key, label: bucket.label });
@@ -824,8 +783,8 @@ function buildSidebarItems(requirements: RequirementSummary[]): SidebarItem[] {
   });
 
   const uncategorizedReplay = replayHlrs.filter((req) => (
-    !REPLAY_STORY_BUCKETS.some((bucket) => bucket.match(req.id))
-    && !REPLAY_PLUMBING_BUCKETS.some((bucket) => bucket.match(req.id))
+    !storyBuckets.some((bucket) => bucket.match(req.id))
+    && !plumbingBuckets.some((bucket) => bucket.match(req.id))
   ));
   if (uncategorizedReplay.length > 0) {
     items.push({ type: 'bucket', key: 'replay-other', label: 'Replay Other' });

@@ -4,5 +4,6 @@ import './comparisonSummary.test';
 import './activeDiffSummary.test';
 import './matrixRowHighlighting.test';
 import './textTinting.test';
+import './replayPresentation.test';
 
 console.log('all tests passed');
