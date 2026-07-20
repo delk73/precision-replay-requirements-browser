@@ -368,6 +368,7 @@ export default function App() {
   const loadedRequired = results.sourceFiles.filter((file) => file.required && file.loaded).length;
   const totalRequired = results.sourceFiles.filter((file) => file.required).length;
   const diffLabels = useMemo(() => buildDiffLabels(results, repoRef, compareRef), [results, repoRef, compareRef]);
+  const activeDiffSummary = useMemo(() => buildActiveDiffSummary(results, activeDiffFilter), [results, activeDiffFilter]);
 
   const selectRequirement = (id: string, kind: RequirementKind) => {
     setSelectedId(id);
@@ -445,9 +446,9 @@ export default function App() {
         <aside className="flex min-h-0 flex-col border-r border-slate-800 bg-[#111419]/70">
           <div className="border-b border-slate-800 p-4">
             <div className="mb-3 grid grid-cols-3 gap-2 text-center text-xs">
-              <Metric label="HLR" value={results.hlrs.length} />
-              <Metric label="LLR" value={results.llrs.length} />
-              <Metric label="Rows" value={results.matrixRows.length} />
+              <Metric label="HLR" value={results.hlrs.length} secondary={activeDiffSummary ? `${activeDiffSummary.hlrCount} in active diff` : 'no comparison'} />
+              <Metric label="LLR" value={results.llrs.length} secondary={activeDiffSummary ? `${activeDiffSummary.llrCount} in active diff` : 'no comparison'} />
+              <Metric label="Rows" value={results.matrixRows.length} secondary={activeDiffSummary ? `${activeDiffSummary.rowCount} in active diff` : 'no comparison'} />
             </div>
             <div className={`rounded border p-3 text-xs ${results.validation.ok ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-rose-500/30 bg-rose-500/5'}`}>
               <div className="flex items-center gap-2 font-semibold">
@@ -670,6 +671,18 @@ export function summarizeDelta(delta: ComparisonDelta, hlrs: HlrObject[], llrs: 
   };
 }
 
+export function buildActiveDiffSummary(results: ParseResults, activeDiffFilter: DiffFilter): { hlrCount: number; llrCount: number; rowCount: number } | null {
+  if (!results.comparison) return null;
+  const activeDeltas = activeDiffFilter === 'all'
+    ? results.comparison.deltas
+    : results.comparison.deltas.filter((delta) => delta.change === activeDiffFilter);
+  return {
+    hlrCount: activeDeltas.filter((delta) => delta.kind === 'hlr').length,
+    llrCount: activeDeltas.filter((delta) => delta.kind === 'llr').length,
+    rowCount: activeDeltas.filter((delta) => delta.kind === 'matrix_row').length,
+  };
+}
+
 export function countRequirementStatuses(requirements: RequirementSummary[]) {
   return {
     traceStatusCounts: requirements.reduce<Record<DerivedTraceStatus, number>>((counts, req) => {
@@ -697,11 +710,12 @@ function deltaToRequirement(delta: ComparisonDelta): HlrObject | LlrObject | nul
   return delta.kind === 'hlr' ? { ...base, kind: 'hlr' } : { ...base, kind: 'llr', tracedHlrIds: [], hasTraceDeclaration: false };
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function Metric({ label, value, secondary }: { label: string; value: number; secondary?: string }) {
   return (
     <div className="rounded border border-slate-800 bg-[#0A0B0E] p-2">
       <div className="font-mono text-lg font-semibold">{value}</div>
       <div className="text-[10px] uppercase text-slate-500">{label}</div>
+      {secondary && <div className="mt-1 text-[10px] text-slate-600">{secondary}</div>}
     </div>
   );
 }
