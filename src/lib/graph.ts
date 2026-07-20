@@ -6,7 +6,7 @@ import {
   GraphEdge,
   NormalizedStatus,
 } from '../types';
-import { strongestStatus } from './status';
+import { DerivedImplementationStatus, deriveImplementationStatus } from './status';
 
 export interface ColumnarGraph {
   hlrNodes: GraphNode[];
@@ -16,7 +16,7 @@ export interface ColumnarGraph {
   edges: GraphEdge[];
 }
 
-function isEvidenceBearingStatus(status: NormalizedStatus): boolean {
+function isEvidenceBearingStatus(status: DerivedImplementationStatus): boolean {
   return status === 'implemented' || status === 'tested' || status === 'proof_partial';
 }
 
@@ -96,7 +96,7 @@ export function buildNeighborhoodGraph(
     if (focusedHlrIds.has(h.id)) {
       // Find row status for this HLR
       const associatedRows = matrixRows.filter(r => r.detectedHlrIds.includes(h.id));
-      const status = strongestStatus(associatedRows.map((row) => row.normalizedStatus));
+      const status = deriveImplementationStatus(associatedRows);
 
       // Status filters
       if (filters.pendingOnly && status !== 'pending') return;
@@ -115,13 +115,8 @@ export function buildNeighborhoodGraph(
   if (filters.includeLlrs) {
     llrs.forEach(l => {
       if (focusedLlrIds.has(l.id)) {
-        // Status checks based on tracing HLR status
-        const associatedHlrs = l.tracedHlrIds;
-        const associatedRows = matrixRows.filter(r => 
-          r.detectedLlrIds.includes(l.id) || 
-          r.detectedHlrIds.some(hId => associatedHlrs.includes(hId))
-        );
-        const status = strongestStatus(associatedRows.map((row) => row.normalizedStatus));
+        const associatedRows = matrixRows.filter(r => r.detectedLlrIds.includes(l.id));
+        const status = deriveImplementationStatus(associatedRows);
 
         if (filters.pendingOnly && status !== 'pending') return;
         if (filters.evidenceBearingOnly && !isEvidenceBearingStatus(status)) return;
@@ -140,14 +135,15 @@ export function buildNeighborhoodGraph(
   if (filters.includeRows) {
     matrixRows.forEach(row => {
       if (focusedRowNumbers.has(row.rowNumber)) {
-        if (filters.pendingOnly && row.normalizedStatus !== 'pending') return;
-        if (filters.evidenceBearingOnly && !isEvidenceBearingStatus(row.normalizedStatus)) return;
+        const implementationStatus = deriveImplementationStatus([row]);
+        if (filters.pendingOnly && implementationStatus !== 'pending') return;
+        if (filters.evidenceBearingOnly && !isEvidenceBearingStatus(implementationStatus)) return;
 
         rowNodesMap.set(`row-${row.rowNumber}`, {
           id: `row-${row.rowNumber}`,
           label: `Matrix Row ${row.rowNumber}: ${row.rawStatusText}`,
           type: 'matrix_row',
-          status: row.normalizedStatus
+          status: implementationStatus
         });
       }
     });
@@ -157,8 +153,9 @@ export function buildNeighborhoodGraph(
   if (filters.includePaths) {
     matrixRows.forEach(row => {
       if (focusedRowNumbers.has(row.rowNumber)) {
-        if (filters.pendingOnly && row.normalizedStatus !== 'pending') return;
-        if (filters.evidenceBearingOnly && !isEvidenceBearingStatus(row.normalizedStatus)) return;
+        const implementationStatus = deriveImplementationStatus([row]);
+        if (filters.pendingOnly && implementationStatus !== 'pending') return;
+        if (filters.evidenceBearingOnly && !isEvidenceBearingStatus(implementationStatus)) return;
 
         // Add Evidence Paths
         row.detectedPaths.forEach(path => {
@@ -166,7 +163,7 @@ export function buildNeighborhoodGraph(
             id: `path-${path}`,
             label: `Evidence: ${path}`,
             type: 'evidence_path',
-            status: row.normalizedStatus
+            status: implementationStatus
           });
         });
 
