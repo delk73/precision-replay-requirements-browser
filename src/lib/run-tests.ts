@@ -1,4 +1,6 @@
 import './parser.test';
+import './graph.test';
+import './comparisonSummary.test';
 import './matrixRowHighlighting.test';
 import './textTinting.test';
 

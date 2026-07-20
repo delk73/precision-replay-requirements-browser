@@ -473,7 +473,7 @@ export function auditRepository(
       const declaredTraceHlrIds = llr.tracedHlrIds;
       const matchingHlrLinks = rowDefinedHlrIds.filter((hlrId) => declaredTraceHlrIds.includes(hlrId));
       if (declaredTraceHlrIds.length > 0 && matchingHlrLinks.length === 0) {
-        audits.push({ id: `matrix-mismatch-${row.rowNumber}-${llrId}`, severity: 'Warning', category: 'Matrix Row HLR/LLR Mismatch', rowNumber: row.rowNumber, hlrId: rowDefinedHlrIds[0], llrId, sourceFile: row.sourceFile, message: `Matrix row ${row.rowNumber} maps ${llrId} with row HLR(s) ${rowDefinedHlrIds.join(', ')}, but ${llrId} declares Traces-to HLR(s) ${declaredTraceHlrIds.join(', ')}.` });
+        audits.push({ id: `matrix-mismatch-${row.rowNumber}-${llrId}`, severity: 'Warning', category: 'Supporting Requirement Without Direct HLR Trace', rowNumber: row.rowNumber, hlrId: rowDefinedHlrIds[0], llrId, sourceFile: row.sourceFile, message: `Matrix row ${row.rowNumber} includes ${llrId} alongside row HLR(s) ${rowDefinedHlrIds.join(', ')}, but ${llrId} declares Traces-to HLR(s) ${declaredTraceHlrIds.join(', ')}.` });
       }
     });
   });

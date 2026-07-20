@@ -63,7 +63,6 @@ export function buildNeighborhoodGraph(
     matrixRows.forEach(row => {
       if (row.detectedHlrIds.includes(selectedId)) {
         focusedRowNumbers.add(row.rowNumber);
-        row.detectedLlrIds.forEach(lId => focusedLlrIds.add(lId));
       }
     });
   } else if (selectedType === 'llr') {
@@ -79,7 +78,6 @@ export function buildNeighborhoodGraph(
     matrixRows.forEach(row => {
       if (row.detectedLlrIds.includes(selectedId)) {
         focusedRowNumbers.add(row.rowNumber);
-        row.detectedHlrIds.forEach(hId => focusedHlrIds.add(hId));
       }
     });
   } else if (selectedType === 'matrix_row') {

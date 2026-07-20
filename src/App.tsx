@@ -14,7 +14,7 @@ import {
 import { AuditItem, ComparisonDelta, HlrObject, LlrObject, MatrixRowObject, NormalizedStatus, ParseResults, RepoValidation, RequirementKind } from './types';
 import { buildNeighborhoodGraph } from './lib/graph';
 import { tokenizeMatrixRowText, MatrixRowTokenCategory } from './lib/matrixRowHighlighting';
-import { strongestStatus } from './lib/status';
+import { DerivedImplementationStatus, DerivedTraceStatus, deriveImplementationStatus, deriveTraceStatus } from './lib/status';
 import { tokenizeRequirementText } from './lib/textTinting';
 
 const EMPTY_RESULTS: ParseResults = {
@@ -40,7 +40,8 @@ const DEFAULT_REPO_URL = 'https://github.com/delk73/precision-replay.git';
 const DEFAULT_REF = 'main';
 const DEFAULT_LEFT_WIDTH = 380;
 const DEFAULT_RIGHT_WIDTH = 360;
-const STATUS_BREAKDOWN_ORDER: NormalizedStatus[] = ['tested', 'proof_partial', 'implemented', 'boundary_only', 'traced', 'pending', 'unknown', 'untraced'];
+const TRACE_STATUS_BREAKDOWN_ORDER: DerivedTraceStatus[] = ['traced', 'pending', 'untraced', 'unknown'];
+const IMPLEMENTATION_STATUS_BREAKDOWN_ORDER: DerivedImplementationStatus[] = ['tested', 'proof_partial', 'implemented', 'boundary_only', 'pending', 'unknown'];
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -262,7 +263,7 @@ export default function App() {
       : (results.comparison?.deltas || [])
         .filter((delta) => delta.kind === 'hlr' || delta.kind === 'llr')
         .filter((delta) => delta.change === activeDiffFilter)
-        .map((delta) => summarizeDelta(delta));
+        .map((delta) => summarizeDelta(delta, results.hlrs, results.llrs, rows));
     const needle = searchQuery.trim().toLowerCase();
     return combined.filter((req) => {
       if (!needle) return true;
@@ -272,7 +273,7 @@ export default function App() {
         .filter((term) => term.startsWith('-'))
         .map((term) => term.slice(1))
         .filter(Boolean);
-      const haystack = `${req.id} ${req.title} ${req.sourceFile} ${req.status} ${req.kind} ${domainFrom(req.id, req.sourceFile)}`.toLowerCase();
+      const haystack = `${req.id} ${req.title} ${req.sourceFile} ${req.traceStatus} ${req.implementationStatus} ${req.kind} ${domainFrom(req.id, req.sourceFile)}`.toLowerCase();
       return positiveTerms.every((term) => haystack.includes(term))
         && negativeTerms.every((term) => !haystack.includes(term));
     });
@@ -506,7 +507,10 @@ export default function App() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <span className="font-mono font-semibold text-slate-100">{req.id}</span>
-                  <span className={`rounded border px-1.5 py-0.5 text-[10px] uppercase ${statusClass(req.status)}`}>{req.status}</span>
+                  <span className="flex shrink-0 flex-wrap justify-end gap-1">
+                    <span className={`rounded border px-1.5 py-0.5 text-[10px] uppercase ${statusClass(req.traceStatus)}`}>{req.traceStatus}</span>
+                    <span className={`rounded border px-1.5 py-0.5 text-[10px] uppercase ${statusClass(req.implementationStatus)}`}>Impl {req.implementationStatus}</span>
+                  </span>
                 </div>
                 <p className="mt-1 line-clamp-2 text-slate-400">{req.title}</p>
                 <p className="mt-2 font-mono text-[10px] text-slate-500">{domainFrom(req.id, req.sourceFile)} / {req.sourceFile}</p>
@@ -614,7 +618,7 @@ function ComparisonStatus({ results, requested }: { results: ParseResults; reque
   return null;
 }
 
-function summarizeRequirement(req: HlrObject | LlrObject, rows: MatrixRowObject[]) {
+export function summarizeRequirement(req: HlrObject | LlrObject, rows: MatrixRowObject[]) {
   const matching = rows.filter((row) => (req.kind === 'hlr' ? row.detectedHlrIds.includes(req.id) : row.detectedLlrIds.includes(req.id)));
   return {
     id: req.id,
@@ -622,7 +626,8 @@ function summarizeRequirement(req: HlrObject | LlrObject, rows: MatrixRowObject[
     title: req.title,
     sourceFile: req.sourceFile,
     sourceLine: req.sourceLine,
-    status: strongestStatus(matching.map((row) => row.normalizedStatus)),
+    traceStatus: deriveTraceStatus(matching),
+    implementationStatus: deriveImplementationStatus(matching),
   };
 }
 
@@ -646,14 +651,35 @@ function buildDiffLabels(results: ParseResults, fallbackBase: string, fallbackCo
   };
 }
 
-function summarizeDelta(delta: ComparisonDelta): RequirementSummary {
+export function summarizeDelta(delta: ComparisonDelta, hlrs: HlrObject[], llrs: LlrObject[], rows: MatrixRowObject[]): RequirementSummary {
+  const loadedRequirement = delta.kind === 'hlr'
+    ? hlrs.find((hlr) => hlr.id === delta.id)
+    : delta.kind === 'llr'
+      ? llrs.find((llr) => llr.id === delta.id)
+      : null;
+  if (loadedRequirement) return summarizeRequirement(loadedRequirement, rows);
+
   return {
     id: delta.id,
     kind: delta.kind as RequirementKind,
     title: delta.title || delta.message,
     sourceFile: delta.sourceFile || 'comparison',
     sourceLine: delta.sourceLine || 1,
-    status: delta.status || 'unknown' as NormalizedStatus,
+    traceStatus: 'unknown' as DerivedTraceStatus,
+    implementationStatus: 'unknown' as DerivedImplementationStatus,
+  };
+}
+
+export function countRequirementStatuses(requirements: RequirementSummary[]) {
+  return {
+    traceStatusCounts: requirements.reduce<Record<DerivedTraceStatus, number>>((counts, req) => {
+      counts[req.traceStatus] = (counts[req.traceStatus] || 0) + 1;
+      return counts;
+    }, {} as Record<DerivedTraceStatus, number>),
+    implementationStatusCounts: requirements.reduce<Record<DerivedImplementationStatus, number>>((counts, req) => {
+      counts[req.implementationStatus] = (counts[req.implementationStatus] || 0) + 1;
+      return counts;
+    }, {} as Record<DerivedImplementationStatus, number>),
   };
 }
 
@@ -726,11 +752,18 @@ function RequirementDetail({
 
   const activeRowPaths = activeRow?.detectedPaths ?? [];
   const requirementEvidencePaths = Array.from(new Set(rows.flatMap((row) => row.detectedPaths)));
-  const requirementStatus = strongestStatus(rows.map((row) => row.normalizedStatus));
-  const showTestedWithoutEvidenceWarning = requirementStatus === 'tested' && requirementEvidencePaths.length === 0;
-  const statusSources = rows.filter((row) => row.normalizedStatus === requirementStatus);
+  const traceStatus = deriveTraceStatus(rows);
+  const implementationStatus = deriveImplementationStatus(rows);
+  const showTestedWithoutEvidenceWarning = implementationStatus === 'tested' && requirementEvidencePaths.length === 0;
+  const statusSources = traceStatus === 'traced'
+    ? rows.filter((row) => ['traced', 'implemented', 'tested', 'proof_partial', 'boundary_only'].includes(row.normalizedStatus))
+    : rows;
   const statusSourceRows = statusSources.length > 0 ? statusSources : rows;
-  const activeRowStatusDiffers = Boolean(activeRow && activeRow.normalizedStatus !== requirementStatus);
+  const activeRowStatusDiffers = Boolean(
+    activeRow
+    && ['tested', 'proof_partial', 'implemented', 'boundary_only'].includes(activeRow.normalizedStatus)
+    && activeRow.normalizedStatus !== implementationStatus,
+  );
   const hasMixedStatuses = new Set(rows.map((row) => row.normalizedStatus)).size > 1;
 
   return (
@@ -798,7 +831,8 @@ function RequirementDetail({
       <aside className="space-y-5 pl-5">
         <LinkedRequirements linkedHlrs={linkedHlrs} linkedLlrs={linkedLlrs} requirement={requirement} />
         <TraceSummary
-          requirementStatus={requirementStatus}
+          traceStatus={traceStatus}
+          implementationStatus={implementationStatus}
           statusSourceRows={statusSourceRows}
           activeRow={activeRow}
           requirementEvidencePaths={requirementEvidencePaths}
@@ -883,7 +917,8 @@ function LinkedRequirements({ linkedHlrs, linkedLlrs, requirement }: { linkedHlr
 }
 
 function TraceSummary({
-  requirementStatus,
+  traceStatus,
+  implementationStatus,
   statusSourceRows,
   activeRow,
   requirementEvidencePaths,
@@ -893,7 +928,8 @@ function TraceSummary({
   hasMixedStatuses,
   activeRowStatusDiffers,
 }: {
-  requirementStatus: NormalizedStatus;
+  traceStatus: DerivedTraceStatus;
+  implementationStatus: DerivedImplementationStatus;
   statusSourceRows: MatrixRowObject[];
   activeRow: MatrixRowObject | null;
   requirementEvidencePaths: string[];
@@ -911,16 +947,17 @@ function TraceSummary({
     <section className="rounded border border-slate-800 bg-[#111419] p-4">
       <h3 className="mb-3 text-sm font-semibold">Trace Summary</h3>
       <div className="space-y-1 text-xs text-slate-400">
-        <p><span className="text-slate-500">Status:</span> <span className={`rounded border px-1.5 py-0.5 text-[10px] uppercase ${statusClass(requirementStatus)}`}>{requirementStatus}</span> <span>from {statusRowText}</span></p>
+        <p><span className="text-slate-500">Trace status:</span> <span className={`rounded border px-1.5 py-0.5 text-[10px] uppercase ${statusClass(traceStatus)}`}>{traceStatus}</span> <span>from {statusRowText}</span></p>
+        <p><span className="text-slate-500">Implementation status:</span> <span className={`rounded border px-1.5 py-0.5 text-[10px] uppercase ${statusClass(implementationStatus)}`}>{implementationStatus}</span></p>
         <p className="break-words"><span className="text-slate-500">Evidence:</span> <span className="font-mono">{evidenceSummary}</span></p>
         <p><span className="text-slate-500">Active row:</span> <span className="font-mono">{activeRow ? `Row ${activeRow.rowNumber}` : 'none'}</span></p>
         <p><span className="text-slate-500">Compare:</span> <span className="font-mono">{compareSummary}</span></p>
       </div>
       <div className="mt-3 space-y-1 text-xs">
-        <p className="text-slate-500">{activeStatusSource || 'Status comes from strongest linked matrix row.'}</p>
+        <p className="text-slate-500">{activeStatusSource || 'Statuses are derived from linked matrix rows.'}</p>
         {showTestedWithoutEvidenceWarning && <p className="text-amber-200">Tested status has no parsed evidence path.</p>}
         {hasMixedStatuses && <p className="text-amber-200">Requirement has multiple rows with different statuses.</p>}
-        {activeRowStatusDiffers && <p className="text-amber-200">Active row differs from requirement strongest status.</p>}
+        {activeRowStatusDiffers && <p className="text-amber-200">Active row differs from requirement implementation status.</p>}
       </div>
     </section>
   );
@@ -999,11 +1036,18 @@ function numberRanges(values: number[]): string {
 
 function TraceView({ graph, rows, activeRow, linkContext }: { graph: ReturnType<typeof buildNeighborhoodGraph>; rows: MatrixRowObject[]; activeRow: MatrixRowObject | null; linkContext: MatrixRowLinkContext }) {
   const rowByNumber = new Map(rows.map((row) => [row.rowNumber, row]));
+  const directIds = new Set([...graph.hlrNodes.map((node) => node.id), ...graph.llrNodes.map((node) => node.id)]);
+  const displayedRows = graph.rowNodes
+    .map((node) => rowByNumber.get(Number(node.id.replace('row-', ''))))
+    .filter((row): row is MatrixRowObject => Boolean(row));
   const rowItems = graph.rowNodes.map((node) => {
     const rowNumber = Number(node.id.replace('row-', ''));
     const row = rowByNumber.get(rowNumber);
     return row ? <MatrixRowLabel row={row} linkContext={linkContext} /> : node.label;
   });
+  const sameRowContext = Array.from(new Set(displayedRows.flatMap((row) => [...row.detectedHlrIds, ...row.detectedLlrIds])))
+    .filter((id) => !directIds.has(id))
+    .sort();
   return (
     <div className="space-y-5">
       <div className="grid gap-4 lg:grid-cols-4">
@@ -1019,6 +1063,18 @@ function TraceView({ graph, rows, activeRow, linkContext }: { graph: ReturnType<
           <div className="mt-3 space-y-2">
             <p className="text-xs"><MatrixRowLabel row={activeRow} linkContext={linkContext} /></p>
             <p className="break-words font-mono text-xs text-slate-300">{activeRow.rawText}</p>
+          </div>
+        )}
+      </section>
+      <section className="rounded border border-slate-800 bg-[#111419] p-4">
+        <h3 className="mb-3 text-sm font-semibold">Other requirements in the same matrix row</h3>
+        {sameRowContext.length === 0 ? (
+          <p className="text-xs text-slate-600">No additional same-row requirements.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {sameRowContext.map((id) => (
+              <span key={id} className="rounded border border-slate-800 bg-[#0A0B0E] px-2 py-1 font-mono text-xs text-slate-300">{id}</span>
+            ))}
           </div>
         )}
       </section>
@@ -1170,21 +1226,29 @@ function WorkPacketView({
           const lines = packetRows.filter((row) => basename(row.sourceFile) === file).map((row) => row.sourceLine);
           return `${file}:${numberRanges(lines)}`;
         });
-        const statusCounts = packetRequirements.reduce<Record<NormalizedStatus, number>>((counts, req) => {
-          counts[req.status] = (counts[req.status] || 0) + 1;
-          return counts;
-        }, {} as Record<NormalizedStatus, number>);
+        const { traceStatusCounts, implementationStatusCounts } = countRequirementStatuses(packetRequirements);
         return (
           <section key={packet.id} className="rounded border border-slate-800 bg-[#111419] p-4">
             <h3 className="text-base font-semibold">{packet.label}</h3>
             <p className="mt-1 text-xs text-slate-500">{hlrCount} HLR / {llrCount} LLR / {packetRows.length} rows / {packetAudits.length} audits</p>
             {packetRequirements.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {STATUS_BREAKDOWN_ORDER.filter((status) => statusCounts[status]).map((status) => (
-                  <span key={status} className={`rounded border px-2 py-0.5 text-[10px] uppercase ${statusClass(status)}`}>
-                    {status} {statusCounts[status]}
-                  </span>
-                ))}
+              <div className="mt-3 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] uppercase text-slate-500">Trace</span>
+                  {TRACE_STATUS_BREAKDOWN_ORDER.filter((status) => traceStatusCounts[status]).map((status) => (
+                    <span key={status} className={`rounded border px-2 py-0.5 text-[10px] uppercase ${statusClass(status)}`}>
+                      {status} {traceStatusCounts[status]}
+                    </span>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] uppercase text-slate-500">Implementation</span>
+                  {IMPLEMENTATION_STATUS_BREAKDOWN_ORDER.filter((status) => implementationStatusCounts[status]).map((status) => (
+                    <span key={status} className={`rounded border px-2 py-0.5 text-[10px] uppercase ${statusClass(status)}`}>
+                      {status} {implementationStatusCounts[status]}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
             {packetRows.length > 0 && (

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { buildNeighborhoodGraph } from './graph';
 import { normalizeStatus, parseMatrix, parseRepoSources, RawSourceFile } from './parser';
-import { strongestStatus } from './status';
+import { deriveImplementationStatus, deriveTraceStatus, strongestStatus } from './status';
 import { NormalizedStatus, RepoValidation, SourceFileStatus } from '../types';
 
 const requiredFiles = [
@@ -116,7 +116,7 @@ for (const domain of ['math', 'replay', 'target_io', 'witness']) {
 }
 
 assert.equal(results.audits.filter((audit) => audit.category === 'Duplicate Definition').length, 0);
-assert.ok(results.audits.some((audit) => audit.category === 'Matrix Row HLR/LLR Mismatch'));
+assert.ok(results.audits.some((audit) => audit.category === 'Supporting Requirement Without Direct HLR Trace'));
 assert.ok(results.missingIds.some((missing) => missing.id === 'HLR-NOT-DEFINED-001' && missing.state === 'referenced_only'));
 assert.ok(results.missingIds.some((missing) => missing.id === 'LLR-REFERENCE-ONLY-001' && missing.state === 'referenced_only'));
 assert.equal(snapshotResults.validation.sourceMode, 'github_snapshot');
@@ -295,9 +295,10 @@ const groupedAuditResults = parseRepoSources({
   ],
 });
 
-const groupedMismatches = groupedAuditResults.audits.filter((audit) => audit.category === 'Matrix Row HLR/LLR Mismatch');
+const groupedMismatches = groupedAuditResults.audits.filter((audit) => audit.category === 'Supporting Requirement Without Direct HLR Trace');
 assert.deepEqual(groupedMismatches.map((audit) => `${audit.rowNumber}:${audit.llrId}`), ['3:LLR-TEST-FOUR-001']);
-assert.match(groupedMismatches[0]?.message ?? '', /row HLR\(s\) HLR-TEST-A-001, HLR-TEST-B-001/);
+assert.equal(groupedMismatches[0]?.severity, 'Warning');
+assert.match(groupedMismatches[0]?.message ?? '', /alongside row HLR\(s\) HLR-TEST-A-001, HLR-TEST-B-001/);
 assert.match(groupedMismatches[0]?.message ?? '', /declares Traces-to HLR\(s\) HLR-TEST-C-001/);
 assert.ok(groupedAuditResults.audits.some((audit) => audit.category === 'Matrix ID Missing Definition' && audit.llrId === 'LLR-TEST-MISSING-001'));
 assert.ok(!groupedMismatches.some((audit) => audit.llrId === 'LLR-TEST-MISSING-001'));
@@ -328,6 +329,12 @@ assert.equal(explicitStatusFor('HLR-STATUS-BOUNDARY-001')?.normalizedStatus, 'bo
 assert.equal(explicitStatusFor('HLR-STATUS-TRACED-001')?.normalizedStatus, 'traced');
 assert.equal(explicitStatusFor('HLR-STATUS-UNKNOWN-001')?.normalizedStatus, 'pending');
 assert.equal(explicitStatusFor('HLR-STATUS-UNKNOWN-001')?.statusSource, 'inferred');
+
+assert.equal(deriveTraceStatus([explicitStatusFor('HLR-STATUS-TRACED-001')!]), 'traced');
+assert.equal(deriveTraceStatus([explicitStatusFor('HLR-STATUS-PENDING-001')!, explicitStatusFor('HLR-STATUS-UNKNOWN-001')!]), 'pending');
+assert.equal(deriveTraceStatus([]), 'untraced');
+assert.equal(deriveImplementationStatus([explicitStatusFor('HLR-STATUS-TRACED-001')!]), 'pending');
+assert.equal(deriveImplementationStatus([explicitStatusFor('HLR-STATUS-PROOF-001')!, explicitStatusFor('HLR-STATUS-IMPLEMENTED-001')!]), 'proof_partial');
 
 const statusGraph = buildNeighborhoodGraph(
   'LLR-REPLAY-CHECK-008',
