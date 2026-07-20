@@ -35,6 +35,7 @@ type Tab = 'requirements' | 'trace' | 'audit' | 'work';
 type DiffFilter = 'all' | 'added' | 'removed' | 'changed' | 'status_changed';
 type RequirementSummary = ReturnType<typeof summarizeRequirement>;
 type MatrixRowLinkContext = Pick<RepoValidation, 'repoUrl' | 'resolvedSha'>;
+type ReplayStoryBucket = { key: string; label: string; match: (id: string) => boolean };
 
 const DEFAULT_REPO_URL = 'https://github.com/delk73/precision-replay.git';
 const DEFAULT_REF = 'main';
@@ -42,6 +43,55 @@ const DEFAULT_LEFT_WIDTH = 380;
 const DEFAULT_RIGHT_WIDTH = 360;
 const TRACE_STATUS_BREAKDOWN_ORDER: DerivedTraceStatus[] = ['traced', 'pending', 'untraced', 'unknown'];
 const IMPLEMENTATION_STATUS_BREAKDOWN_ORDER: DerivedImplementationStatus[] = ['tested', 'proof_partial', 'implemented', 'boundary_only', 'pending', 'unknown'];
+const REPLAY_STORY_BUCKETS: ReplayStoryBucket[] = [
+  { key: 'system', label: 'System', match: (id) => id.startsWith('HLR-REPLAY-SYS-') },
+  { key: 'schema', label: 'Schema', match: (id) => id.startsWith('HLR-REPLAY-SCHEMA-') },
+  {
+    key: 'canonical-input',
+    label: 'Canonical Input Boundary',
+    match: (id) => id.startsWith('HLR-REPLAY-ORIGIN-'),
+  },
+  {
+    key: 'run',
+    label: 'Retained Run',
+    match: (id) => id.startsWith('HLR-REPLAY-RUN-') && !id.endsWith('-002') && !id.endsWith('-007') && !id.endsWith('-008'),
+  },
+  {
+    key: 'validation',
+    label: 'Validation',
+    match: (id) => id === 'HLR-REPLAY-RUN-002' || id === 'HLR-REPLAY-RUN-007' || id === 'HLR-REPLAY-RUN-008',
+  },
+  {
+    key: 'execution-record',
+    label: 'Execution Record',
+    match: (id) => id.startsWith('HLR-REPLAY-EXEC-') && !/^HLR-REPLAY-EXEC-00[1-6]$/.test(id),
+  },
+  { key: 'trace', label: 'Trace', match: (id) => id.startsWith('HLR-REPLAY-TRACE-') },
+  { key: 'comparison', label: 'Comparison', match: (id) => id.startsWith('HLR-REPLAY-COMP-') },
+  { key: 'profile', label: 'Target Profile', match: (id) => id.startsWith('HLR-REPLAY-TPROF-') },
+  { key: 'timing', label: 'Timing', match: (id) => id.startsWith('HLR-REPLAY-TIME-') },
+  { key: 'evaluation', label: 'Evaluation', match: (id) => id.startsWith('HLR-REPLAY-EVAL-') },
+  {
+    key: 'operations',
+    label: 'Operations',
+    match: (id) => id.startsWith('HLR-REPLAY-OPS-') && id !== 'HLR-REPLAY-OPS-004' && id !== 'HLR-REPLAY-OPS-005',
+  },
+  { key: 'envelope', label: 'Envelope', match: (id) => id === 'HLR-REPLAY-OPS-004' || id === 'HLR-REPLAY-OPS-005' },
+  { key: 'target', label: 'Target Agreement', match: (id) => id.startsWith('HLR-REPLAY-TGT-') },
+];
+const REPLAY_PLUMBING_BUCKETS: ReplayStoryBucket[] = [
+  { key: 'parse', label: 'Parse', match: (id) => id.startsWith('HLR-REPLAY-PARSE-') },
+  { key: 'projection', label: 'Projection', match: (id) => id.startsWith('HLR-REPLAY-PROJ-') },
+  { key: 'checker', label: 'Checker', match: (id) => id.startsWith('HLR-REPLAY-CHECK-') },
+  { key: 'initial-math', label: 'Initial Math Execution', match: (id) => /^HLR-REPLAY-EXEC-00[1-6]$/.test(id) },
+];
+
+function resolveCompareRef(baseRef: string, requestedCompareRef: string, branches: string[], preferredFallback = ''): string {
+  const fallbackCandidates = [preferredFallback, ...branches].filter((branch) => branch && branch !== baseRef);
+  if (!requestedCompareRef || requestedCompareRef === baseRef) return fallbackCandidates[0] || '';
+  if (!branches.length) return requestedCompareRef;
+  return branches.includes(requestedCompareRef) ? requestedCompareRef : fallbackCandidates[0] || '';
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -177,15 +227,17 @@ export default function App() {
     setLoading(true);
     setLoadError(null);
     try {
+      const effectiveCompareRef = compareEnabled ? resolveCompareRef(repoRef, compareRef, branches) : '';
+      if (compareEnabled && effectiveCompareRef !== compareRef) setCompareRef(effectiveCompareRef);
       const params = new URLSearchParams({ mode: 'github_snapshot', repoUrl, ref: repoRef });
-      if (compareEnabled && compareRef && compareRef !== repoRef) params.set('compareRef', compareRef);
+      if (compareEnabled && effectiveCompareRef && effectiveCompareRef !== repoRef) params.set('compareRef', effectiveCompareRef);
       const response = await fetch(`/api/scan?${params.toString()}`);
       const body = (await response.json()) as ParseResults;
       setResults(body);
       localStorage.setItem('precision_replay_repo_url', repoUrl);
       localStorage.setItem('precision_replay_repo_ref', repoRef);
       localStorage.setItem('precision_replay_compare_enabled', String(compareEnabled));
-      localStorage.setItem('precision_replay_compare_ref', compareRef);
+      localStorage.setItem('precision_replay_compare_ref', effectiveCompareRef);
       const first = body.hlrs[0] || body.llrs[0];
       if (first && !body.hlrs.some((h) => h.id === selectedId) && !body.llrs.some((l) => l.id === selectedId)) {
         setSelectedId(first.id);
@@ -199,7 +251,8 @@ export default function App() {
     }
   };
 
-  const comparisonRequested = compareEnabled && compareRef && compareRef !== repoRef;
+  const comparisonRequested = compareEnabled && Boolean(resolveCompareRef(repoRef, compareRef, branches));
+  const comparisonActive = compareEnabled && Boolean(results.comparison);
 
   const loadBranches = async () => {
     setBranchesLoading(true);
@@ -242,15 +295,15 @@ export default function App() {
   }, [repoUrl]);
 
   useEffect(() => {
-    if (results.comparison && !diffFilterTouched) {
+    if (comparisonActive && !diffFilterTouched) {
       setDiffFilter('changed');
     }
-    if (!results.comparison && !diffFilterTouched) {
+    if (!comparisonActive && !diffFilterTouched) {
       setDiffFilter('all');
     }
-  }, [results.comparison, diffFilterTouched]);
+  }, [comparisonActive, diffFilterTouched]);
 
-  const activeDiffFilter = results.comparison ? diffFilter : 'all';
+  const activeDiffFilter = comparisonActive ? diffFilter : 'all';
 
   const requirements = useMemo(() => {
     const rows = results.matrixRows;
@@ -326,8 +379,9 @@ export default function App() {
   }, [results.matrixRows, selectedRow, selectedRows]);
 
   const selectedComparisonDelta = useMemo(() => {
+    if (!comparisonActive) return null;
     return results.comparison?.deltas.find((delta) => delta.id === selectedId && delta.kind === selectedKind) || null;
-  }, [results.comparison, selectedId, selectedKind]);
+  }, [comparisonActive, results.comparison, selectedId, selectedKind]);
 
   const graph = useMemo(
     () =>
@@ -368,13 +422,14 @@ export default function App() {
   const loadedRequired = results.sourceFiles.filter((file) => file.required && file.loaded).length;
   const totalRequired = results.sourceFiles.filter((file) => file.required).length;
   const diffLabels = useMemo(() => buildDiffLabels(results, repoRef, compareRef), [results, repoRef, compareRef]);
-  const activeDiffSummary = useMemo(() => buildActiveDiffSummary(results, activeDiffFilter), [results, activeDiffFilter]);
+  const activeDiffSummary = useMemo(() => (comparisonActive ? buildActiveDiffSummary(results, activeDiffFilter) : null), [activeDiffFilter, comparisonActive, results]);
   const hasSearchQuery = searchQuery.trim().length > 0;
   const visibleRequirementSummary = useMemo(() => ({
     hlrCount: requirements.filter((req) => req.kind === 'hlr').length,
     llrCount: requirements.filter((req) => req.kind === 'llr').length,
     requirementCount: requirements.length,
   }), [requirements]);
+  const orderedRequirements = useMemo(() => buildSidebarItems(requirements), [requirements]);
 
   const selectRequirement = (id: string, kind: RequirementKind) => {
     setSelectedId(id);
@@ -404,7 +459,11 @@ export default function App() {
                 <span className="text-[10px] uppercase text-slate-500">Base branch</span>
                 <select
                   value={repoRef}
-                  onChange={(event) => setRepoRef(event.target.value)}
+                      onChange={(event) => {
+                        const nextRef = event.target.value;
+                        setRepoRef(nextRef);
+                        setCompareRef((current) => resolveCompareRef(nextRef, current, branches, repoRef));
+                      }}
                   className="w-full rounded border border-slate-700 bg-[#0A0B0E] px-3 py-2 font-mono text-xs text-slate-200 outline-none focus:border-sky-500"
                   aria-label="Base branch"
                   disabled={branchesLoading}
@@ -420,7 +479,10 @@ export default function App() {
                 <input
                   type="checkbox"
                   checked={compareEnabled}
-                  onChange={(event) => setCompareEnabled(event.target.checked)}
+                    onChange={(event) => {
+                      setCompareEnabled(event.target.checked);
+                      if (event.target.checked) setCompareRef((current) => resolveCompareRef(repoRef, current, branches));
+                    }}
                   className="h-4 w-4 accent-sky-500"
                 />
                 Compare branch
@@ -430,7 +492,10 @@ export default function App() {
                   <span className="text-[10px] uppercase text-slate-500">Compare against</span>
                   <select
                     value={compareRef}
-                    onChange={(event) => setCompareRef(event.target.value)}
+                      onChange={(event) => {
+                        const next = event.target.value;
+                        setCompareRef(next);
+                      }}
                     className="w-full rounded border border-slate-700 bg-[#0A0B0E] px-3 py-2 font-mono text-xs text-slate-200 outline-none focus:border-sky-500"
                     aria-label="Compare against branch"
                     disabled={branchesLoading}
@@ -468,9 +533,9 @@ export default function App() {
                     </>
                   ) : (
                     <>
-                      <Metric label="HLR" value={results.hlrs.length} secondary="no comparison" />
-                      <Metric label="LLR" value={results.llrs.length} secondary="no comparison" />
-                      <Metric label="Rows" value={results.matrixRows.length} secondary="no comparison" />
+                      <Metric label="HLR" value={results.hlrs.length} secondary={compareEnabled ? 'no comparison' : undefined} />
+                      <Metric label="LLR" value={results.llrs.length} secondary={compareEnabled ? 'no comparison' : undefined} />
+                      <Metric label="Rows" value={results.matrixRows.length} secondary={compareEnabled ? 'no comparison' : undefined} />
                     </>
                   )}
                 </>
@@ -482,7 +547,7 @@ export default function App() {
                 <span>{results.validation.ok ? 'Source snapshot validated' : 'Validation needed'}</span>
               </div>
               <SourceSummary results={results} />
-              <ComparisonStatus results={results} requested={Boolean(comparisonRequested)} />
+              <ComparisonStatus results={comparisonActive ? results : { ...results, comparison: undefined }} requested={Boolean(comparisonRequested)} />
               {branchesError && <p className="mt-1 text-amber-200">Branch list unavailable: {branchesError}</p>}
               {branchesLoading && <p className="mt-1 text-slate-400">Loading branches...</p>}
               <p className="mt-2 text-slate-400">Required files loaded: {loadedRequired} / {totalRequired || 9}</p>
@@ -499,7 +564,7 @@ export default function App() {
                 className="w-full bg-transparent text-xs outline-none placeholder:text-slate-600"
               />
             </label>
-            {(results.comparison || comparisonRequested) && (
+            {(comparisonActive || comparisonRequested) && (
               <label className="mt-2 block">
                 <span className="mb-1 block text-[10px] uppercase text-slate-500">Diff filter</span>
                 <select
@@ -511,8 +576,8 @@ export default function App() {
                   className="w-full rounded border border-slate-800 bg-[#0A0B0E] px-3 py-2 text-xs text-slate-200 outline-none focus:border-sky-500"
                 >
                   <option value="all">{diffLabels.all}</option>
-                  <option value="added">{diffLabels.added}</option>
                   <option value="removed">{diffLabels.removed}</option>
+                  <option value="added">{diffLabels.added}</option>
                   <option value="changed">{diffLabels.changed}</option>
                   <option value="status_changed">{diffLabels.status_changed}</option>
                 </select>
@@ -521,28 +586,31 @@ export default function App() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
-            {requirements.map((req) => (
-              <button
-                key={`${req.kind}-${req.id}`}
-                type="button"
-                onClick={() => selectRequirement(req.id, req.kind)}
-                className={`mb-2 w-full rounded border p-3 text-left text-xs transition ${
-                  selectedId === req.id && selectedKind === req.kind
-                    ? 'border-sky-500/60 bg-sky-500/10'
-                    : 'border-slate-800 bg-[#0A0B0E] hover:border-slate-700'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <span className="font-mono font-semibold text-slate-100">{req.id}</span>
-                  <span className="flex shrink-0 flex-wrap justify-end gap-1">
-                    <span className={`rounded border px-1.5 py-0.5 text-[10px] uppercase ${statusClass(req.traceStatus)}`}>{req.traceStatus}</span>
-                    <span className={`rounded border px-1.5 py-0.5 text-[10px] uppercase ${statusClass(req.implementationStatus)}`}>Impl {req.implementationStatus}</span>
-                  </span>
+            {orderedRequirements.map((item) =>
+              item.type === 'section' ? (
+                <div
+                  key={item.key}
+                  className="mb-2 mt-3 border-b border-slate-800 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400 first:mt-0"
+                >
+                  {item.label}
                 </div>
-                <p className="mt-1 line-clamp-2 text-slate-400">{req.title}</p>
-                <p className="mt-2 font-mono text-[10px] text-slate-500">{domainFrom(req.id, req.sourceFile)} / {req.sourceFile}</p>
-              </button>
-            ))}
+              ) : item.type === 'bucket' ? (
+                <div
+                  key={item.key}
+                  className="sticky top-0 z-10 mb-2 rounded border border-slate-800 bg-[#111419] px-2 py-1 text-[10px] font-semibold uppercase text-slate-500"
+                >
+                  {item.label}
+                </div>
+              ) : (
+                <RequirementListItem
+                  key={`${item.req.kind}-${item.req.id}`}
+                  req={item.req}
+                  selected={selectedId === item.req.id && selectedKind === item.req.kind}
+                  groupKey={item.groupKey}
+                  onSelect={() => selectRequirement(item.req.id, item.req.kind)}
+                />
+              ),
+            )}
           </div>
         </aside>
         <div
@@ -563,8 +631,8 @@ export default function App() {
           <div className="min-h-0 flex-1 overflow-y-auto p-5">
             {activeTab === 'requirements' && requirements.length === 0 && activeDiffFilter !== 'all' ? (
               <EmptyState
-                title={results.comparison ? 'No matching diff requirements' : 'Comparison not scanned'}
-                body={results.comparison ? 'This diff filter has no parsed HLR or LLR matches.' : 'Click Scan to load comparison data before browsing a diff subset.'}
+                title={comparisonActive ? 'No matching diff requirements' : 'Comparison not scanned'}
+                body={comparisonActive ? 'This diff filter has no parsed HLR or LLR matches.' : 'Click Scan to load comparison data before browsing a diff subset.'}
               />
             ) : activeTab === 'requirements' && (
               <RequirementDetail
@@ -572,7 +640,7 @@ export default function App() {
                 rows={selectedRows}
                 activeRow={activeRow}
                 comparisonDelta={selectedComparisonDelta}
-                hasComparison={Boolean(results.comparison)}
+                hasComparison={comparisonActive}
                 linkContext={results.validation}
                 linkedHlrs={linkedHlrs}
                 linkedLlrs={linkedLlrs}
@@ -625,7 +693,7 @@ function ComparisonStatus({ results, requested }: { results: ParseResults; reque
     }, {});
     return (
       <div className="mt-2 rounded border border-sky-500/20 bg-sky-500/5 p-2 text-[11px] text-sky-100">
-        <p className="font-semibold">Comparison loaded</p>
+        <p className="font-semibold">Comparing {comparison.baseRef} against {comparison.compareRef}</p>
         <p className="break-all font-mono text-[10px] text-sky-200">
           Base {comparison.baseRef} {'->'} compare {comparison.compareRef}
         </p>
@@ -647,6 +715,8 @@ function ComparisonStatus({ results, requested }: { results: ParseResults; reque
 
 export function summarizeRequirement(req: HlrObject | LlrObject, rows: MatrixRowObject[]) {
   const matching = rows.filter((row) => (req.kind === 'hlr' ? row.detectedHlrIds.includes(req.id) : row.detectedLlrIds.includes(req.id)));
+  const implementationEvidencePaths = Array.from(new Set(matching.flatMap((row) => row.detectedPaths).filter(isImplementationEvidencePath)));
+  const hasSameRowSupportingRelation = matching.some((row) => row.detectedHlrIds.length + row.detectedLlrIds.length > 2);
   return {
     id: req.id,
     kind: req.kind,
@@ -655,6 +725,9 @@ export function summarizeRequirement(req: HlrObject | LlrObject, rows: MatrixRow
     sourceLine: req.sourceLine,
     traceStatus: deriveTraceStatus(matching),
     implementationStatus: deriveImplementationStatus(matching),
+    evidenceCount: implementationEvidencePaths.length,
+    hasSameRowSupportingRelation,
+    diffType: undefined as ComparisonDelta['change'] | undefined,
   };
 }
 
@@ -694,7 +767,7 @@ export function summarizeDelta(delta: ComparisonDelta, hlrs: HlrObject[], llrs: 
     : delta.kind === 'llr'
       ? llrs.find((llr) => llr.id === delta.id)
       : null;
-  if (loadedRequirement) return summarizeRequirement(loadedRequirement, rows);
+  if (loadedRequirement) return { ...summarizeRequirement(loadedRequirement, rows), diffType: delta.change };
 
   return {
     id: delta.id,
@@ -704,7 +777,171 @@ export function summarizeDelta(delta: ComparisonDelta, hlrs: HlrObject[], llrs: 
     sourceLine: delta.sourceLine || 1,
     traceStatus: 'unknown' as DerivedTraceStatus,
     implementationStatus: 'unknown' as DerivedImplementationStatus,
+    evidenceCount: 0,
+    hasSameRowSupportingRelation: false,
+    diffType: delta.change,
   };
+}
+
+function isImplementationEvidencePath(path: string): boolean {
+  return Boolean(path) && !/^(docs|doc)\//i.test(path) && !/\.md$/i.test(path);
+}
+
+type SidebarItem =
+  | { type: 'section'; key: string; label: string }
+  | { type: 'bucket'; key: string; label: string }
+  | { type: 'requirement'; req: RequirementSummary; groupKey?: string };
+
+function buildSidebarItems(requirements: RequirementSummary[]): SidebarItem[] {
+  const replayHlrs = requirements.filter((req) => req.kind === 'hlr' && req.id.startsWith('HLR-REPLAY-'));
+  const replayLlrs = requirements.filter((req) => req.kind === 'llr' && req.id.startsWith('LLR-REPLAY-'));
+  const otherRequirements = requirements.filter((req) => !req.id.includes('-REPLAY-'));
+  const hasReplayStory = replayHlrs.length > 0 || replayLlrs.length > 0;
+  if (!hasReplayStory) return requirements.map((req) => ({ type: 'requirement', req }));
+
+  const items: SidebarItem[] = [];
+
+  if (replayHlrs.some((req) => REPLAY_STORY_BUCKETS.some((bucket) => bucket.match(req.id)))) {
+    items.push({ type: 'section', key: 'replay-story-section', label: 'Replay Story' });
+  }
+
+  REPLAY_STORY_BUCKETS.forEach((bucket) => {
+    const bucketRequirements = replayHlrs.filter((req) => bucket.match(req.id));
+    if (bucketRequirements.length === 0) return;
+    items.push({ type: 'bucket', key: bucket.key, label: bucket.label });
+    bucketRequirements.forEach((req) => items.push({ type: 'requirement', req, groupKey: bucket.key }));
+  });
+
+  if (replayHlrs.some((req) => REPLAY_PLUMBING_BUCKETS.some((bucket) => bucket.match(req.id)))) {
+    items.push({ type: 'section', key: 'replay-plumbing-section', label: 'Existing Replay Plumbing' });
+  }
+
+  REPLAY_PLUMBING_BUCKETS.forEach((bucket) => {
+    const bucketRequirements = replayHlrs.filter((req) => bucket.match(req.id));
+    if (bucketRequirements.length === 0) return;
+    items.push({ type: 'bucket', key: bucket.key, label: bucket.label });
+    bucketRequirements.forEach((req) => items.push({ type: 'requirement', req, groupKey: bucket.key }));
+  });
+
+  const uncategorizedReplay = replayHlrs.filter((req) => (
+    !REPLAY_STORY_BUCKETS.some((bucket) => bucket.match(req.id))
+    && !REPLAY_PLUMBING_BUCKETS.some((bucket) => bucket.match(req.id))
+  ));
+  if (uncategorizedReplay.length > 0) {
+    items.push({ type: 'bucket', key: 'replay-other', label: 'Replay Other' });
+    uncategorizedReplay.forEach((req) => items.push({ type: 'requirement', req, groupKey: 'plumbing' }));
+  }
+
+  if (replayLlrs.length > 0) {
+    items.push({ type: 'bucket', key: 'replay-llr', label: 'Replay LLRs' });
+    replayLlrs.forEach((req) => items.push({ type: 'requirement', req, groupKey: 'plumbing' }));
+  }
+
+  if (otherRequirements.length > 0) {
+    items.push({ type: 'bucket', key: 'outside-replay', label: 'Outside Replay Story' });
+    otherRequirements.forEach((req) => items.push({ type: 'requirement', req }));
+  }
+
+  return items;
+}
+
+function RequirementListItem({ req, selected, groupKey, onSelect }: {
+  req: RequirementSummary;
+  selected: boolean;
+  groupKey?: string;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`mb-2 w-full rounded border p-3 text-left text-xs transition ${
+        selected
+          ? 'border-sky-500/60 bg-sky-500/10'
+          : `${sidebarCardTintClass(groupKey)} hover:border-slate-700`
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="font-mono font-semibold text-slate-100">{req.id}</span>
+      </div>
+      <p className="mt-1 line-clamp-2 text-slate-400">{req.title}</p>
+      <div className="mt-2 flex items-center gap-1.5 overflow-hidden whitespace-nowrap font-mono text-[10px]">
+        <span className={`shrink-0 rounded border px-1.5 py-0.5 uppercase ${cardTraceStatusClass(req.traceStatus)}`}>{req.traceStatus.toUpperCase()}</span>
+        <span className="shrink-0 text-slate-600">&middot;</span>
+        <span className={`shrink-0 rounded border px-1.5 py-0.5 uppercase ${cardImplementationStatusClass(req.implementationStatus)}`}>IMPL {req.implementationStatus.toUpperCase()}</span>
+        <span className="shrink-0 text-slate-600">&middot;</span>
+        <span className="truncate text-slate-500">{codeTestLinkLabel(req.evidenceCount)}</span>
+      </div>
+      {req.diffType && <p className="mt-1 text-[10px] text-sky-300">{comparisonLabel(req.diffType)}</p>}
+    </button>
+  );
+}
+
+function codeTestLinkLabel(count: number): string {
+  if (count === 0) return 'no code/test links';
+  return `${count} code/test ${count === 1 ? 'link' : 'links'}`;
+}
+
+function cardTraceStatusClass(status: DerivedTraceStatus): string {
+  switch (status) {
+    case 'traced':
+      return 'border-blue-400/20 bg-blue-400/10 text-blue-200/85';
+    case 'pending':
+      return 'border-slate-400/20 bg-slate-400/10 text-slate-300/80';
+    case 'untraced':
+      return 'border-rose-400/20 bg-rose-400/10 text-rose-200/75';
+    default:
+      return 'border-slate-500/20 bg-slate-500/10 text-slate-400';
+  }
+}
+
+function cardImplementationStatusClass(status: DerivedImplementationStatus): string {
+  switch (status) {
+    case 'tested':
+    case 'implemented':
+      return 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200/85';
+    case 'pending':
+      return 'border-amber-400/20 bg-amber-400/10 text-amber-200/80';
+    case 'proof_partial':
+      return 'border-teal-400/20 bg-teal-400/10 text-teal-200/80';
+    case 'boundary_only':
+      return 'border-slate-400/20 bg-slate-400/10 text-slate-300/80';
+    default:
+      return 'border-slate-500/20 bg-slate-500/10 text-slate-400';
+  }
+}
+
+function sidebarCardTintClass(groupKey?: string): string {
+  switch (groupKey) {
+    case 'system':
+    case 'schema':
+    case 'canonical-input':
+      return 'border-slate-800 bg-[rgba(14,24,38,0.78)]';
+    case 'run':
+    case 'validation':
+      return 'border-slate-800 bg-[rgba(12,31,24,0.72)]';
+    case 'execution-record':
+    case 'trace':
+      return 'border-slate-800 bg-[rgba(9,29,35,0.72)]';
+    case 'comparison':
+    case 'evaluation':
+      return 'border-slate-800 bg-[rgba(25,20,38,0.72)]';
+    case 'profile':
+    case 'timing':
+      return 'border-slate-800 bg-[rgba(15,30,32,0.7)]';
+    case 'operations':
+    case 'envelope':
+    case 'target':
+      return 'border-slate-800 bg-[rgba(35,30,20,0.68)]';
+    case 'parse':
+    case 'projection':
+    case 'checker':
+    case 'initial-math':
+    case 'plumbing':
+      return 'border-slate-800 bg-[rgba(17,20,25,0.78)]';
+    default:
+      return 'border-slate-800 bg-[#0A0B0E]';
+  }
 }
 
 export function buildActiveDiffSummary(results: ParseResults, activeDiffFilter: DiffFilter): { hlrCount: number; llrCount: number; activeDeltaCount: number; totalDeltaCount: number } | null {
@@ -835,7 +1072,7 @@ function RequirementDetail({
               <SourceLocation sourceFile={requirement.sourceFile} sourceLine={requirement.sourceLine} linkContext={linkContext} />
             </p>
           </div>
-          <pre className="mt-4 max-h-72 overflow-auto rounded border border-slate-800 bg-[#0A0B0E] p-4 whitespace-pre-wrap text-xs text-slate-300"><TintedRequirementText text={requirement.text} /></pre>
+          <pre className="mt-4 max-h-72 overflow-auto rounded border border-slate-800 bg-[#0A0B0E] p-4 whitespace-pre-wrap text-xs leading-6 text-slate-300"><TintedRequirementText text={requirement.text} /></pre>
         </section>
 
         <section className="rounded border border-slate-800 bg-[#111419] p-5">
@@ -895,7 +1132,6 @@ function RequirementDetail({
         />
         <section className="rounded border border-slate-800 bg-[#111419] p-4">
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold"><FileCode className="h-4 w-4" /> Requirement Evidence</h3>
-          <p className="mb-3 text-xs text-slate-500">Includes paths from all linked rows.</p>
           {requirementEvidencePaths.length > 0 ? (
             <div className="space-y-2">
               {requirementEvidencePaths.map((path) => <p key={path} className="break-all rounded border border-slate-800 bg-[#0A0B0E] p-2 font-mono text-xs text-slate-300">{path}</p>)}
@@ -908,7 +1144,6 @@ function RequirementDetail({
         </section>
         <section className="rounded border border-slate-800 bg-[#111419] p-4">
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold"><FileCode className="h-4 w-4" /> Active Row Evidence</h3>
-          <p className="mb-3 text-xs text-slate-500">Includes only {activeRow ? `Row ${activeRow.rowNumber}` : 'the active row'}.</p>
           {activeRowPaths.length ? (
             <div className="space-y-2">
               {activeRowPaths.map((path) => <p key={path} className="break-all rounded border border-slate-800 bg-[#0A0B0E] p-2 font-mono text-xs text-slate-300">{path}</p>)}
@@ -1017,14 +1252,15 @@ function TraceSummary({
 function comparisonLabel(change?: ComparisonDelta['change']): string {
   switch (change) {
     case 'added':
-      return 'only in compare';
+      return 'Only in compare';
     case 'removed':
-      return 'only in base';
+      return 'Only in base';
     case 'changed':
+      return 'Definition differs';
     case 'status_changed':
-      return 'changed';
+      return 'Status differs';
     default:
-      return 'unchanged';
+      return 'Unchanged';
   }
 }
 

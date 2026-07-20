@@ -21,7 +21,7 @@ interface TextTintRule {
 export const TEXT_TINTING_RULES: TextTintRule[] = [
   {
     category: 'identifier',
-    className: 'text-cyan-200',
+    className: 'text-cyan-300/80',
     patterns: [
       /^(?:HLR|LLR)-[A-Z0-9-]+$/i,
       /^`[^`]+`$/,
@@ -33,22 +33,22 @@ export const TEXT_TINTING_RULES: TextTintRule[] = [
   },
   {
     category: 'numberOrUnit',
-    className: 'text-sky-300',
+    className: 'text-sky-300/75',
     patterns: [/^\d+(?:\.\d+)?(?:%|ms|s|hz|khz|mhz|gb|mb|kb|bit|bits|byte|bytes)?$/i],
   },
   {
     category: 'requirementVerb',
-    className: 'text-blue-200 font-semibold',
+    className: 'text-blue-200/85 font-medium',
     terms: ['shall', 'must', 'should', 'may'],
   },
   {
     category: 'actionVerb',
-    className: 'text-indigo-200',
+    className: 'text-indigo-200/75',
     terms: ['compare', 'retain', 'generate', 'verify', 'reject', 'parse', 'load', 'resolve', 'ingest', 'output', 'persist', 'prevent'],
   },
   {
     category: 'domainNoun',
-    className: 'text-teal-200',
+    className: 'text-teal-200/70',
     terms: ['replay', 'trace', 'witness', 'schema', 'matrix', 'branch', 'reference', 'requirement', 'comparison'],
   },
 ];
