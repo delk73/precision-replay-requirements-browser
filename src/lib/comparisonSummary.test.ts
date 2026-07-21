@@ -5,6 +5,7 @@ import { ComparisonDelta, HlrObject, LlrObject, MatrixRowObject } from '../types
 const hlrs: HlrObject[] = [
   { id: 'HLR-COMPARE-TRACE-001', kind: 'hlr', title: 'Trace Only', text: '', sourceFile: 'docs/normative/HLR_compare.md', sourceLine: 1, rawSnippet: '' },
   { id: 'HLR-COMPARE-IMPL-001', kind: 'hlr', title: 'Implemented', text: '', sourceFile: 'docs/normative/HLR_compare.md', sourceLine: 2, rawSnippet: '' },
+  { id: 'HLR-COMPARE-DECOMP-001', kind: 'hlr', title: 'Decomposed', text: '', sourceFile: 'docs/normative/HLR_compare.md', sourceLine: 3, rawSnippet: '' },
 ];
 
 const llrs: LlrObject[] = [];
@@ -34,6 +35,18 @@ const rows: MatrixRowObject[] = [
     sourceFile: 'docs/normative/traceability_matrix.md',
     sourceLine: 4,
   },
+  {
+    rowNumber: 3,
+    rawText: '| HLR-COMPARE-DECOMP-001 | Status: decomposed. |',
+    detectedHlrIds: ['HLR-COMPARE-DECOMP-001'],
+    detectedLlrIds: [],
+    detectedPaths: ['docs/design/replay_family.md'],
+    rawStatusText: 'decomposed',
+    normalizedStatus: 'decomposed',
+    statusSource: 'explicit',
+    sourceFile: 'docs/normative/traceability_matrix.md',
+    sourceLine: 5,
+  },
 ];
 
 const tracedDelta: ComparisonDelta = {
@@ -61,6 +74,11 @@ assert.equal(fallbackSummary.traceStatus, 'unknown');
 assert.equal(fallbackSummary.implementationStatus, 'unknown');
 
 const unfilteredImplemented = summarizeRequirement(hlrs[1], rows);
+const decomposedSummary = summarizeRequirement(hlrs[2], rows);
+assert.equal(decomposedSummary.traceStatus, 'decomposed');
+assert.equal(decomposedSummary.implementationStatus, 'pending');
+assert.equal(decomposedSummary.evidenceCount, 0);
+
 const filteredImplemented = summarizeDelta(
   { id: 'HLR-COMPARE-IMPL-001', kind: 'hlr', change: 'status_changed', message: 'Status changed.', status: 'traced' },
   hlrs,
@@ -72,11 +90,12 @@ assert.deepEqual(
   { traceStatus: unfilteredImplemented.traceStatus, implementationStatus: unfilteredImplemented.implementationStatus },
 );
 
-const summaries = [tracedSummary, fallbackSummary, filteredImplemented];
+const summaries = [tracedSummary, fallbackSummary, filteredImplemented, decomposedSummary];
 const counts = countRequirementStatuses(summaries);
 assert.equal(counts.traceStatusCounts.traced, 2);
+assert.equal(counts.traceStatusCounts.decomposed, 1);
 assert.equal(counts.traceStatusCounts.unknown, 1);
-assert.equal(counts.implementationStatusCounts.pending, 1);
+assert.equal(counts.implementationStatusCounts.pending, 2);
 assert.equal(counts.implementationStatusCounts.implemented, 1);
 assert.equal(counts.implementationStatusCounts.unknown, 1);
 const implementationStatusLabels = summaries.map((summary) => String(summary.implementationStatus));

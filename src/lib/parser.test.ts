@@ -311,6 +311,7 @@ const explicitStatusMatrix = parseMatrix([
   '| HLR-STATUS-TESTED-001 | LLR-STATUS-TESTED-001 | Status: tested. Bounded Kani proof exists in related prose. |',
   '| HLR-STATUS-PROOF-001 | LLR-STATUS-PROOF-001 | Status: proof_partial. Executable test coverage is mentioned in prose. |',
   '| HLR-STATUS-BOUNDARY-001 | LLR-STATUS-BOUNDARY-001 | Status: boundary_only. |',
+  '| HLR-STATUS-DECOMPOSED-001 | | Status: decomposed. Downstream Replay families carry the direct LLR links. |',
   '| HLR-STATUS-TRACED-001 | LLR-STATUS-TRACED-001 | Status: traced. |',
   '| HLR-STATUS-UNKNOWN-001 | LLR-STATUS-UNKNOWN-001 | Status: unknown. Implementation and verification are pending. |',
 ].join('\n'), 'docs/normative/traceability_matrix.md');
@@ -326,14 +327,19 @@ assert.equal(explicitStatusFor('HLR-STATUS-TESTED-001')?.rawStatusText, 'tested'
 assert.equal(explicitStatusFor('HLR-STATUS-PROOF-001')?.normalizedStatus, 'proof_partial');
 assert.equal(explicitStatusFor('HLR-STATUS-PROOF-001')?.rawStatusText, 'proof_partial');
 assert.equal(explicitStatusFor('HLR-STATUS-BOUNDARY-001')?.normalizedStatus, 'boundary_only');
+assert.equal(explicitStatusFor('HLR-STATUS-DECOMPOSED-001')?.normalizedStatus, 'decomposed');
+assert.equal(explicitStatusFor('HLR-STATUS-DECOMPOSED-001')?.rawStatusText, 'decomposed');
 assert.equal(explicitStatusFor('HLR-STATUS-TRACED-001')?.normalizedStatus, 'traced');
 assert.equal(explicitStatusFor('HLR-STATUS-UNKNOWN-001')?.normalizedStatus, 'pending');
 assert.equal(explicitStatusFor('HLR-STATUS-UNKNOWN-001')?.statusSource, 'inferred');
 
 assert.equal(deriveTraceStatus([explicitStatusFor('HLR-STATUS-TRACED-001')!]), 'traced');
+assert.equal(deriveTraceStatus([explicitStatusFor('HLR-STATUS-DECOMPOSED-001')!]), 'decomposed');
 assert.equal(deriveTraceStatus([explicitStatusFor('HLR-STATUS-PENDING-001')!, explicitStatusFor('HLR-STATUS-UNKNOWN-001')!]), 'pending');
 assert.equal(deriveTraceStatus([]), 'untraced');
 assert.equal(deriveImplementationStatus([explicitStatusFor('HLR-STATUS-TRACED-001')!]), 'pending');
+assert.equal(deriveImplementationStatus([explicitStatusFor('HLR-STATUS-DECOMPOSED-001')!]), 'pending');
+assert.equal(deriveImplementationStatus([explicitStatusFor('HLR-STATUS-DECOMPOSED-001')!, explicitStatusFor('HLR-STATUS-IMPLEMENTED-001')!]), 'implemented');
 assert.equal(deriveImplementationStatus([explicitStatusFor('HLR-STATUS-PROOF-001')!, explicitStatusFor('HLR-STATUS-IMPLEMENTED-001')!]), 'proof_partial');
 
 const statusGraph = buildNeighborhoodGraph(
@@ -386,6 +392,7 @@ assert.ok(inferredStatusResults.audits.some((audit) => audit.category === 'Matri
 
 assert.equal(strongestStatus(['implemented', 'tested', 'pending']), 'tested');
 assert.equal(strongestStatus(['implemented', 'boundary_only', 'traced']), 'implemented');
+assert.equal(strongestStatus(['decomposed', 'pending']), 'decomposed');
 assert.equal(strongestStatus(['unknown', 'pending']), 'pending');
 assert.equal(strongestStatus([]), 'untraced');
 

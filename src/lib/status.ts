@@ -1,6 +1,6 @@
 import { MatrixRowObject, NormalizedStatus } from '../types';
 
-export type DerivedTraceStatus = 'traced' | 'pending' | 'untraced' | 'unknown';
+export type DerivedTraceStatus = 'traced' | 'decomposed' | 'pending' | 'untraced' | 'unknown';
 export type DerivedImplementationStatus = 'tested' | 'proof_partial' | 'implemented' | 'boundary_only' | 'pending' | 'unknown';
 
 const STATUS_STRENGTH: Record<NormalizedStatus, number> = {
@@ -8,6 +8,7 @@ const STATUS_STRENGTH: Record<NormalizedStatus, number> = {
   proof_partial: 7,
   implemented: 6,
   boundary_only: 5,
+  decomposed: 4,
   traced: 4,
   pending: 3,
   unknown: 2,
@@ -37,6 +38,7 @@ const IMPLEMENTATION_STATUS_ORDER: Exclude<DerivedImplementationStatus, 'unknown
 
 export function deriveTraceStatus(rows: MatrixRowObject[]): DerivedTraceStatus {
   if (rows.length === 0) return 'untraced';
+  if (rows.some((row) => row.normalizedStatus === 'decomposed')) return 'decomposed';
   return rows.some((row) => TRACE_BEARING_STATUSES.has(row.normalizedStatus)) ? 'traced' : 'pending';
 }
 

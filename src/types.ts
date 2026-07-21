@@ -4,6 +4,7 @@ export type NormalizedStatus =
   | 'pending'
   | 'proof_partial'
   | 'boundary_only'
+  | 'decomposed'
   | 'traced'
   | 'unknown'
   | 'untraced';

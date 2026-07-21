@@ -47,7 +47,7 @@ const DEFAULT_REPO_URL = 'https://github.com/delk73/precision-replay.git';
 const DEFAULT_REF = 'main';
 const DEFAULT_LEFT_WIDTH = 380;
 const DEFAULT_RIGHT_WIDTH = 360;
-const TRACE_STATUS_BREAKDOWN_ORDER: DerivedTraceStatus[] = ['traced', 'pending', 'untraced', 'unknown'];
+const TRACE_STATUS_BREAKDOWN_ORDER: DerivedTraceStatus[] = ['traced', 'decomposed', 'pending', 'untraced', 'unknown'];
 const IMPLEMENTATION_STATUS_BREAKDOWN_ORDER: DerivedImplementationStatus[] = ['tested', 'proof_partial', 'implemented', 'boundary_only', 'pending', 'unknown'];
 
 function resolveCompareRef(baseRef: string, requestedCompareRef: string, branches: string[], preferredFallback = ''): string {
@@ -78,6 +78,8 @@ function statusClass(status: NormalizedStatus): string {
       return 'bg-sky-500/10 text-sky-300 border-sky-500/30';
     case 'boundary_only':
       return 'bg-fuchsia-500/10 text-fuchsia-300 border-fuchsia-500/30';
+    case 'decomposed':
+      return 'bg-violet-500/10 text-violet-300 border-violet-500/30';
     case 'traced':
       return 'bg-blue-500/10 text-blue-300 border-blue-500/30';
     case 'untraced':
@@ -878,6 +880,8 @@ function cardTraceStatusClass(status: DerivedTraceStatus): string {
   switch (status) {
     case 'traced':
       return 'border-blue-400/20 bg-blue-400/10 text-blue-200/85';
+    case 'decomposed':
+      return 'border-violet-400/20 bg-violet-400/10 text-violet-200/85';
     case 'pending':
       return 'border-slate-400/20 bg-slate-400/10 text-slate-300/80';
     case 'untraced':
@@ -1035,8 +1039,8 @@ function RequirementDetail({
   const traceStatus = deriveTraceStatus(rows);
   const implementationStatus = deriveImplementationStatus(rows);
   const showTestedWithoutEvidenceWarning = implementationStatus === 'tested' && requirementEvidencePaths.length === 0;
-  const statusSources = traceStatus === 'traced'
-    ? rows.filter((row) => ['traced', 'implemented', 'tested', 'proof_partial', 'boundary_only'].includes(row.normalizedStatus))
+  const statusSources = traceStatus === 'traced' || traceStatus === 'decomposed'
+    ? rows.filter((row) => ['traced', 'decomposed', 'implemented', 'tested', 'proof_partial', 'boundary_only'].includes(row.normalizedStatus))
     : rows;
   const statusSourceRows = statusSources.length > 0 ? statusSources : rows;
   const activeRowStatusDiffers = Boolean(
@@ -1109,7 +1113,7 @@ function RequirementDetail({
       />
 
       <aside className="space-y-5 pl-5">
-        <LinkedRequirements linkedHlrs={linkedHlrs} linkedLlrs={linkedLlrs} requirement={requirement} />
+        <LinkedRequirements linkedHlrs={linkedHlrs} linkedLlrs={linkedLlrs} requirement={requirement} rows={rows} />
         <TraceSummary
           traceStatus={traceStatus}
           implementationStatus={implementationStatus}
@@ -1180,18 +1184,25 @@ function TintedRequirementText({ text }: { text: string }) {
   );
 }
 
-function LinkedRequirements({ linkedHlrs, linkedLlrs, requirement }: { linkedHlrs: HlrObject[]; linkedLlrs: LlrObject[]; requirement: HlrObject | LlrObject }) {
+function LinkedRequirements({ linkedHlrs, linkedLlrs, requirement, rows }: { linkedHlrs: HlrObject[]; linkedLlrs: LlrObject[]; requirement: HlrObject | LlrObject; rows: MatrixRowObject[] }) {
   const items = requirement.kind === 'hlr' ? linkedLlrs : linkedHlrs;
+  const fallbackText = linkedRequirementsFallbackText(requirement, rows);
   return (
     <section className="rounded border border-slate-800 bg-[#111419] p-4">
       <h3 className="mb-3 text-sm font-semibold">{requirement.kind === 'hlr' ? 'Traced LLRs' : 'Parent HLRs'}</h3>
-      {items.length === 0 ? <p className="text-sm text-slate-500">No explicit trace link found.</p> : (
+      {items.length === 0 ? <p className="text-sm text-slate-500">{fallbackText}</p> : (
         <div className="space-y-2">
           {items.map((item) => <p key={item.id} className="rounded border border-slate-800 bg-[#0A0B0E] p-2 font-mono text-xs">{item.id}</p>)}
         </div>
       )}
     </section>
   );
+}
+
+export function linkedRequirementsFallbackText(requirement: HlrObject | LlrObject, rows: MatrixRowObject[]): string {
+  return requirement.kind === 'hlr' && rows.some((row) => row.normalizedStatus === 'decomposed')
+    ? 'No direct LLR; decomposed through requirement families.'
+    : 'No explicit trace link found.';
 }
 
 function TraceSummary({

@@ -32,7 +32,7 @@ const HLR_ID = new RegExp(`(?:^|[^A-Z0-9-])(${CANONICAL_HLR_ID})(?=$|[^A-Z0-9-])
 const LLR_ID = new RegExp(`(?:^|[^A-Z0-9-])(${CANONICAL_LLR_ID})(?=$|[^A-Z0-9-])`, 'gi');
 const HLR_HEADING = new RegExp(`^(#{2,6})\\s+(${CANONICAL_HLR_ID}):?\\s*(.*)$`, 'i');
 const LLR_HEADING = new RegExp(`^(#{2,6})\\s+(${CANONICAL_LLR_ID}):?\\s*(.*)$`, 'i');
-const CANONICAL_EXPLICIT_STATUSES = ['pending', 'implemented', 'tested', 'proof_partial', 'boundary_only', 'traced'] as const;
+const CANONICAL_EXPLICIT_STATUSES = ['pending', 'implemented', 'tested', 'proof_partial', 'boundary_only', 'decomposed', 'traced'] as const;
 const EXPLICIT_STATUS = /\bstatus\s*:\s*([a-z_]+)\b/i;
 
 export function extractIds(text: string, pattern: RegExp): string[] {
