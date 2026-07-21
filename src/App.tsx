@@ -36,6 +36,12 @@ type Tab = 'requirements' | 'trace' | 'audit' | 'work';
 type DiffFilter = 'all' | 'added' | 'removed' | 'changed' | 'status_changed';
 type RequirementSummary = ReturnType<typeof summarizeRequirement>;
 type MatrixRowLinkContext = Pick<RepoValidation, 'repoUrl' | 'resolvedSha'>;
+type ScanSettings = {
+  repoUrl: string;
+  baseRef: string;
+  compareEnabled: boolean;
+  compareRef: string;
+};
 
 const DEFAULT_REPO_URL = 'https://github.com/delk73/precision-replay.git';
 const DEFAULT_REF = 'main';
@@ -133,6 +139,7 @@ export default function App() {
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [branchesError, setBranchesError] = useState<string | null>(null);
   const [results, setResults] = useState<ParseResults>(EMPTY_RESULTS);
+  const [lastScanSettings, setLastScanSettings] = useState<ScanSettings | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('requirements');
@@ -196,6 +203,7 @@ export default function App() {
       localStorage.setItem('precision_replay_repo_ref', repoRef);
       localStorage.setItem('precision_replay_compare_enabled', String(compareEnabled));
       localStorage.setItem('precision_replay_compare_ref', effectiveCompareRef);
+      setLastScanSettings({ repoUrl, baseRef: repoRef, compareEnabled, compareRef: effectiveCompareRef });
       const first = body.hlrs[0] || body.llrs[0];
       if (first && !body.hlrs.some((h) => h.id === selectedId) && !body.llrs.some((l) => l.id === selectedId)) {
         setSelectedId(first.id);
@@ -204,13 +212,26 @@ export default function App() {
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error));
       setResults(EMPTY_RESULTS);
+      setLastScanSettings(null);
     } finally {
       setLoading(false);
     }
   };
 
-  const comparisonRequested = compareEnabled && Boolean(resolveCompareRef(repoRef, compareRef, branches));
-  const comparisonActive = compareEnabled && Boolean(results.comparison);
+  const effectiveCompareRef = compareEnabled ? resolveCompareRef(repoRef, compareRef, branches) : '';
+  const comparisonRequested = compareEnabled && Boolean(effectiveCompareRef);
+  const comparisonSettingsChanged = Boolean(
+    compareEnabled
+    && results.comparison
+    && lastScanSettings
+    && (
+      lastScanSettings.repoUrl !== repoUrl
+      || lastScanSettings.baseRef !== repoRef
+      || lastScanSettings.compareEnabled !== compareEnabled
+      || lastScanSettings.compareRef !== effectiveCompareRef
+    ),
+  );
+  const comparisonActive = compareEnabled && Boolean(results.comparison) && !comparisonSettingsChanged;
 
   const loadBranches = async () => {
     setBranchesLoading(true);
@@ -379,7 +400,8 @@ export default function App() {
 
   const loadedRequired = results.sourceFiles.filter((file) => file.required && file.loaded).length;
   const totalRequired = results.sourceFiles.filter((file) => file.required).length;
-  const diffLabels = useMemo(() => buildDiffLabels(results, repoRef, compareRef), [results, repoRef, compareRef]);
+  const comparisonFreshResults = comparisonActive ? results : { ...results, comparison: undefined };
+  const diffLabels = useMemo(() => buildDiffLabels(comparisonFreshResults, repoRef, compareRef), [comparisonFreshResults, repoRef, compareRef]);
   const activeDiffSummary = useMemo(() => (comparisonActive ? buildActiveDiffSummary(results, activeDiffFilter) : null), [activeDiffFilter, comparisonActive, results]);
   const hasSearchQuery = searchQuery.trim().length > 0;
   const visibleRequirementSummary = useMemo(() => ({
@@ -491,9 +513,9 @@ export default function App() {
                     </>
                   ) : (
                     <>
-                      <Metric label="HLR" value={results.hlrs.length} secondary={compareEnabled ? 'no comparison' : undefined} />
-                      <Metric label="LLR" value={results.llrs.length} secondary={compareEnabled ? 'no comparison' : undefined} />
-                      <Metric label="Rows" value={results.matrixRows.length} secondary={compareEnabled ? 'no comparison' : undefined} />
+                      <Metric label="HLR" value={results.hlrs.length} secondary={comparisonSettingsChanged ? 'stale comparison' : compareEnabled ? 'no comparison' : undefined} muted={comparisonSettingsChanged} />
+                      <Metric label="LLR" value={results.llrs.length} secondary={comparisonSettingsChanged ? 'stale comparison' : compareEnabled ? 'no comparison' : undefined} muted={comparisonSettingsChanged} />
+                      <Metric label="Rows" value={results.matrixRows.length} secondary={comparisonSettingsChanged ? 'stale comparison' : compareEnabled ? 'no comparison' : undefined} muted={comparisonSettingsChanged} />
                     </>
                   )}
                 </>
@@ -505,7 +527,7 @@ export default function App() {
                 <span>{results.validation.ok ? 'Source snapshot validated' : 'Validation needed'}</span>
               </div>
               <SourceSummary results={results} />
-              <ComparisonStatus results={comparisonActive ? results : { ...results, comparison: undefined }} requested={Boolean(comparisonRequested)} />
+              <ComparisonStatus results={results} requested={Boolean(comparisonRequested)} stale={comparisonSettingsChanged} />
               {branchesError && <p className="mt-1 text-amber-200">Branch list unavailable: {branchesError}</p>}
               {branchesLoading && <p className="mt-1 text-slate-400">Loading branches...</p>}
               <p className="mt-2 text-slate-400">Required files loaded: {loadedRequired} / {totalRequired || 9}</p>
@@ -642,8 +664,19 @@ function SourceSummary({ results }: { results: ParseResults }) {
   );
 }
 
-function ComparisonStatus({ results, requested }: { results: ParseResults; requested: boolean }) {
+function ComparisonStatus({ results, requested, stale }: { results: ParseResults; requested: boolean; stale: boolean }) {
   const comparison = results.comparison;
+  if (comparison && stale) {
+    return (
+      <div className="mt-2 rounded border border-amber-400/50 bg-amber-400/10 p-2 text-[11px] text-amber-100">
+        <p className="font-semibold">Comparison settings changed. Results below are from the previous scan.</p>
+        <p className="mt-1 break-all font-mono text-[10px] text-amber-200">
+          Previous scan: {comparison.baseRef} {'->'} {comparison.compareRef}
+        </p>
+        <p className="mt-1 text-amber-200">Click Scan before using comparison counters, diff filters, trace summaries, or branch-delta review.</p>
+      </div>
+    );
+  }
   if (comparison) {
     const counts = comparison.deltas.reduce<Record<string, number>>((acc, delta) => {
       acc[delta.change] = (acc[delta.change] || 0) + 1;
@@ -943,12 +976,12 @@ function deltaToRequirement(delta: ComparisonDelta): HlrObject | LlrObject | nul
   return delta.kind === 'hlr' ? { ...base, kind: 'hlr' } : { ...base, kind: 'llr', tracedHlrIds: [], hasTraceDeclaration: false };
 }
 
-function Metric({ label, value, secondary }: { label: string; value: number; secondary?: string }) {
+function Metric({ label, value, secondary, muted = false }: { label: string; value: number; secondary?: string; muted?: boolean }) {
   return (
-    <div className="rounded border border-slate-800 bg-[#0A0B0E] p-2">
+    <div className={`rounded border p-2 ${muted ? 'border-amber-500/25 bg-amber-500/5 opacity-70' : 'border-slate-800 bg-[#0A0B0E]'}`}>
       <div className="font-mono text-lg font-semibold">{value}</div>
       <div className="text-[10px] uppercase text-slate-500">{label}</div>
-      {secondary && <div className="mt-1 text-[10px] text-slate-600">{secondary}</div>}
+      {secondary && <div className={`mt-1 text-[10px] ${muted ? 'font-semibold text-amber-200' : 'text-slate-600'}`}>{secondary}</div>}
     </div>
   );
 }
