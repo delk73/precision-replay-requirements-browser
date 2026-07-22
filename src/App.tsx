@@ -15,7 +15,14 @@ import { AuditItem, ComparisonDelta, HlrObject, LlrObject, MatrixRowObject, Norm
 import { buildNeighborhoodGraph } from './lib/graph';
 import { tokenizeMatrixRowText, MatrixRowTokenCategory } from './lib/matrixRowHighlighting';
 import { REPLAY_PRESENTATION_PROFILE } from './lib/replayPresentation';
-import { DerivedImplementationStatus, DerivedTraceStatus, deriveImplementationStatus, deriveTraceStatus } from './lib/status';
+import {
+  DerivedImplementationStatus,
+  DerivedTraceStatus,
+  deriveImplementationStatus,
+  deriveTraceStatus,
+  hasActiveRowImplementationConflict,
+  hasMatrixStatusConflict,
+} from './lib/status';
 import { tokenizeRequirementText } from './lib/textTinting';
 
 const EMPTY_RESULTS: ParseResults = {
@@ -1043,12 +1050,8 @@ function RequirementDetail({
     ? rows.filter((row) => ['traced', 'decomposed', 'implemented', 'tested', 'proof_partial', 'boundary_only'].includes(row.normalizedStatus))
     : rows;
   const statusSourceRows = statusSources.length > 0 ? statusSources : rows;
-  const activeRowStatusDiffers = Boolean(
-    activeRow
-    && ['tested', 'proof_partial', 'implemented', 'boundary_only'].includes(activeRow.normalizedStatus)
-    && activeRow.normalizedStatus !== implementationStatus,
-  );
-  const hasMixedStatuses = new Set(rows.map((row) => row.normalizedStatus)).size > 1;
+  const activeRowStatusDiffers = hasActiveRowImplementationConflict(activeRow, implementationStatus);
+  const hasMixedStatuses = hasMatrixStatusConflict(rows);
 
   return (
     <div

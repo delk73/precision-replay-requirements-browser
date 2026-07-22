@@ -46,3 +46,52 @@ export function deriveImplementationStatus(rows: MatrixRowObject[]): DerivedImpl
   const statuses = new Set(rows.map((row) => row.normalizedStatus));
   return IMPLEMENTATION_STATUS_ORDER.find((status) => statuses.has(status)) ?? 'pending';
 }
+
+const COMPLEMENTARY_COVERAGE_STATUSES = new Set<NormalizedStatus>(['implemented', 'tested']);
+
+function isTestEvidencePath(path: string): boolean {
+  return /(^|[\\/])(__tests__|tests?|testdata)([\\/]|$)|(?:^|[\\/])[^\\/]*\.(test|spec)\.|proof|kani/i.test(path);
+}
+
+function isImplementationEvidencePath(path: string): boolean {
+  return Boolean(path) && !/^(docs|doc)[\\/]/i.test(path) && !/\.md$/i.test(path) && !isTestEvidencePath(path);
+}
+
+function providesImplementationEvidence(row: MatrixRowObject): boolean {
+  return row.normalizedStatus === 'implemented' || row.detectedPaths.some(isImplementationEvidencePath);
+}
+
+function providesTestEvidence(row: MatrixRowObject): boolean {
+  return row.normalizedStatus === 'tested' || row.detectedPaths.some(isTestEvidencePath);
+}
+
+export function hasComplementaryImplementationAndTestCoverage(rows: MatrixRowObject[]): boolean {
+  const statuses = new Set(rows.map((row) => row.normalizedStatus));
+  const hasImplementationEvidence = rows.some(providesImplementationEvidence);
+  const hasTestEvidence = rows.some(providesTestEvidence);
+  return hasImplementationEvidence
+    && hasTestEvidence
+    && statuses.size === COMPLEMENTARY_COVERAGE_STATUSES.size
+    && Array.from(statuses).every((status) => COMPLEMENTARY_COVERAGE_STATUSES.has(status));
+}
+
+export function hasMatrixStatusConflict(rows: MatrixRowObject[]): boolean {
+  const statuses = new Set(rows.map((row) => row.normalizedStatus));
+  return statuses.size > 1 && !hasComplementaryImplementationAndTestCoverage(rows);
+}
+
+export function hasActiveRowImplementationConflict(
+  activeRow: MatrixRowObject | null,
+  implementationStatus: DerivedImplementationStatus,
+): boolean {
+  if (!activeRow || !['tested', 'proof_partial', 'implemented', 'boundary_only'].includes(activeRow.normalizedStatus)) {
+    return false;
+  }
+  if (
+    activeRow.normalizedStatus === 'implemented'
+    && implementationStatus === 'tested'
+  ) {
+    return false;
+  }
+  return activeRow.normalizedStatus !== implementationStatus;
+}

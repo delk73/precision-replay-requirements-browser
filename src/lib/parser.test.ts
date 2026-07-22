@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { buildNeighborhoodGraph } from './graph';
 import { normalizeStatus, parseMatrix, parseRepoSources, RawSourceFile } from './parser';
-import { deriveImplementationStatus, deriveTraceStatus, strongestStatus } from './status';
+import {
+  deriveImplementationStatus,
+  deriveTraceStatus,
+  hasActiveRowImplementationConflict,
+  hasComplementaryImplementationAndTestCoverage,
+  hasMatrixStatusConflict,
+  strongestStatus,
+} from './status';
 import { NormalizedStatus, RepoValidation, SourceFileStatus } from '../types';
 
 const requiredFiles = [
@@ -365,6 +372,23 @@ const strongestStatusGraph = buildNeighborhoodGraph(
   { includeLlrs: true, includeRows: true, includePaths: true, pendingOnly: false, evidenceBearingOnly: false },
 );
 assert.equal(strongestStatusGraph.hlrNodes.find((node) => node.id === 'HLR-STATUS-SUMMARY-001')?.status, 'tested');
+
+const complementaryCoverageRows = parseMatrix([
+  '| HLR-REPLAY-PARSE-001 | LLR-REPLAY-PARSE-001 | Status: implemented. | `src/replay/parse.rs` |',
+  '| HLR-REPLAY-PARSE-001 | LLR-REPLAY-PARSE-001 | Status: tested. | `tests/replay_parse_test.rs` |',
+].join('\n'), 'docs/normative/traceability_matrix.md').rows;
+assert.equal(deriveImplementationStatus(complementaryCoverageRows), 'tested');
+assert.equal(hasComplementaryImplementationAndTestCoverage(complementaryCoverageRows), true);
+assert.equal(hasMatrixStatusConflict(complementaryCoverageRows), false);
+assert.equal(hasActiveRowImplementationConflict(complementaryCoverageRows[0], deriveImplementationStatus(complementaryCoverageRows)), false);
+
+const contradictoryCoverageRows = parseMatrix([
+  '| HLR-REPLAY-PARSE-001 | LLR-REPLAY-PARSE-001 | Status: pending. |',
+  '| HLR-REPLAY-PARSE-001 | LLR-REPLAY-PARSE-001 | Status: tested. | `tests/replay_parse_test.rs` |',
+].join('\n'), 'docs/normative/traceability_matrix.md').rows;
+assert.equal(hasComplementaryImplementationAndTestCoverage(contradictoryCoverageRows), false);
+assert.equal(hasMatrixStatusConflict(contradictoryCoverageRows), true);
+assert.equal(hasActiveRowImplementationConflict(contradictoryCoverageRows[0], deriveImplementationStatus(contradictoryCoverageRows)), false);
 
 const untracedResults = parseRepoSources({
   validation,
