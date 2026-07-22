@@ -129,6 +129,106 @@ assert.ok(results.missingIds.some((missing) => missing.id === 'LLR-REFERENCE-ONL
 assert.equal(snapshotResults.validation.sourceMode, 'github_snapshot');
 assert.equal(snapshotResults.validation.resolvedSha, 'abc123');
 
+const sectionBoundaryResults = parseRepoSources({
+  validation,
+  sourceFiles: [statusFor('docs/normative/HLR_replay.md')],
+  files: [
+    {
+      path: 'docs/normative/HLR_replay.md',
+      required: true,
+      content: [
+        '## 5. Replay Execution',
+        '',
+        '### HLR-REPLAY-EXEC-022: Stable incomplete execution reasons',
+        '',
+        'Stable machine-readable incomplete or execution reasons shall belong in the execution record.',
+        '',
+        '## 6. Execution Trace',
+        '',
+        '### HLR-REPLAY-TRACE-001: Trace entries',
+        '',
+        'Trace entries shall be parsed as their own requirement.',
+      ].join('\n'),
+    },
+  ],
+});
+const execRequirement = sectionBoundaryResults.hlrs.find((hlr) => hlr.id === 'HLR-REPLAY-EXEC-022');
+const traceRequirement = sectionBoundaryResults.hlrs.find((hlr) => hlr.id === 'HLR-REPLAY-TRACE-001');
+assert.ok(execRequirement);
+assert.ok(traceRequirement);
+assert.equal(execRequirement.text.includes('## 6. Execution Trace'), false);
+assert.equal(execRequirement.text.includes('HLR-REPLAY-TRACE-001'), false);
+assert.equal(sectionBoundaryResults.hlrs.some((hlr) => hlr.text.includes('## 6. Execution Trace')), false);
+assert.equal(traceRequirement.sourceLine, 9);
+
+const sameLevelSectionBoundaryResults = parseRepoSources({
+  validation,
+  sourceFiles: [statusFor('docs/normative/HLR_replay.md')],
+  files: [
+    {
+      path: 'docs/normative/HLR_replay.md',
+      required: true,
+      content: [
+        '### HLR-REPLAY-EXEC-022: Stable incomplete execution reasons',
+        '',
+        'Stable machine-readable incomplete or execution reasons shall belong in the execution record.',
+        '',
+        '### 6. Execution Trace',
+        '',
+        '### HLR-REPLAY-TRACE-001: Trace entries',
+        '',
+        'Trace entries shall be parsed as their own requirement.',
+      ].join('\n'),
+    },
+  ],
+});
+const sameLevelExecRequirement = sameLevelSectionBoundaryResults.hlrs.find((hlr) => hlr.id === 'HLR-REPLAY-EXEC-022');
+const sameLevelTraceRequirement = sameLevelSectionBoundaryResults.hlrs.find((hlr) => hlr.id === 'HLR-REPLAY-TRACE-001');
+assert.ok(sameLevelExecRequirement);
+assert.ok(sameLevelTraceRequirement);
+assert.equal(sameLevelExecRequirement.text.includes('### 6. Execution Trace'), false);
+assert.equal(sameLevelExecRequirement.text.includes('HLR-REPLAY-TRACE-001'), false);
+
+const headingBoundaryResults = parseRepoSources({
+  validation,
+  sourceFiles: [statusFor('docs/normative/HLR_replay.md')],
+  files: [
+    {
+      path: 'docs/normative/HLR_replay.md',
+      required: true,
+      content: [
+        '  ### HLR-REPLAY-EXEC-022: Stable incomplete execution reasons ###',
+        '',
+        'Stable machine-readable incomplete or execution reasons shall belong in the execution record.',
+        '',
+        '#### Boundary Notes',
+        '',
+        'This note belongs to document structure, not EXEC-022.',
+        '',
+        '  ### HLR-REPLAY-TRACE-001: Trace entries ###',
+        '',
+        'Trace entries shall be parsed as their own requirement.',
+      ].join('\n'),
+    },
+  ],
+});
+const headingBoundaryExec = headingBoundaryResults.hlrs.find((hlr) => hlr.id === 'HLR-REPLAY-EXEC-022');
+const headingBoundaryTrace = headingBoundaryResults.hlrs.find((hlr) => hlr.id === 'HLR-REPLAY-TRACE-001');
+assert.ok(headingBoundaryExec);
+assert.ok(headingBoundaryTrace);
+assert.equal(headingBoundaryExec.text.includes('#### Boundary Notes'), false);
+assert.equal(headingBoundaryExec.text.includes('This note belongs to document structure'), false);
+assert.equal(headingBoundaryExec.text.includes('HLR-REPLAY-TRACE-001'), false);
+assert.equal(headingBoundaryTrace.title, 'Trace entries');
+
+const parsedRequirementBodies = [...results.hlrs, ...results.llrs];
+assert.deepEqual(
+  parsedRequirementBodies
+    .filter((requirement) => /^ {0,3}#{1,6}\s/m.test(requirement.text))
+    .map((requirement) => requirement.id),
+  [],
+);
+
 const missingSourceResults = parseRepoSources({
   validation,
   sourceFiles: sourceFiles.map((file) => file.path === 'docs/normative/HLR_witness.md' ? { ...file, loaded: false, reason: 'not found' } : file),

@@ -30,8 +30,9 @@ const CANONICAL_HLR_ID = 'HLR-[A-Z0-9]+(?:-[A-Z0-9]+)+-\\d+';
 const CANONICAL_LLR_ID = 'LLR-[A-Z0-9]+(?:-[A-Z0-9]+)+-\\d+';
 const HLR_ID = new RegExp(`(?:^|[^A-Z0-9-])(${CANONICAL_HLR_ID})(?=$|[^A-Z0-9-])`, 'gi');
 const LLR_ID = new RegExp(`(?:^|[^A-Z0-9-])(${CANONICAL_LLR_ID})(?=$|[^A-Z0-9-])`, 'gi');
-const HLR_HEADING = new RegExp(`^(#{2,6})\\s+(${CANONICAL_HLR_ID}):?\\s*(.*)$`, 'i');
-const LLR_HEADING = new RegExp(`^(#{2,6})\\s+(${CANONICAL_LLR_ID}):?\\s*(.*)$`, 'i');
+const HLR_HEADING = new RegExp(`^\\s*(#{2,6})\\s+(${CANONICAL_HLR_ID}):?\\s*(.*?)\\s*#*\\s*$`, 'i');
+const LLR_HEADING = new RegExp(`^\\s*(#{2,6})\\s+(${CANONICAL_LLR_ID}):?\\s*(.*?)\\s*#*\\s*$`, 'i');
+const MARKDOWN_HEADING = /^\s*#{1,6}(?:\s+|(?=\d+\.))\S.*?\s*#*\s*$/;
 const CANONICAL_EXPLICIT_STATUSES = ['pending', 'implemented', 'tested', 'proof_partial', 'boundary_only', 'decomposed', 'traced'] as const;
 const EXPLICIT_STATUS = /\bstatus\s*:\s*([a-z_]+)\b/i;
 
@@ -138,6 +139,7 @@ function parseDefinitions(file: RawSourceFile, kind: 'hlr' | 'llr'): Array<HlrOb
         title: string;
         sourceFile: string;
         sourceLine: number;
+        headingLevel: number;
       }
     | null = null;
   let blockLines: string[] = [];
@@ -146,15 +148,16 @@ function parseDefinitions(file: RawSourceFile, kind: 'hlr' | 'llr'): Array<HlrOb
     if (!current?.id) return;
     const text = blockLines.join('\n').trim();
     const rawSnippet = `${kind === 'hlr' ? 'HLR' : 'LLR'} ${current.id}\n${text}`.trim();
+    const { headingLevel: _headingLevel, ...definition } = current;
     if (kind === 'hlr') {
-      results.push({ ...current, kind: 'hlr', text, rawSnippet });
+      results.push({ ...definition, kind: 'hlr', text, rawSnippet });
     } else {
       const traceLines = blockLines.filter((line) => /traces[- ]to\s*:/i.test(line));
       const traces = blockLines
         .filter((line) => /traces[- ]to\s*:/i.test(line))
         .flatMap((line) => extractIds(line, HLR_ID));
       results.push({
-        ...current,
+        ...definition,
         kind: 'llr',
         text,
         rawSnippet,
@@ -167,6 +170,12 @@ function parseDefinitions(file: RawSourceFile, kind: 'hlr' | 'llr'): Array<HlrOb
   lines.forEach((line, index) => {
     const match = line.match(heading);
     if (!match) {
+      if (current && MARKDOWN_HEADING.test(line)) {
+        flush();
+        current = null;
+        blockLines = [];
+        return;
+      }
       if (current) blockLines.push(line);
       return;
     }
@@ -179,6 +188,7 @@ function parseDefinitions(file: RawSourceFile, kind: 'hlr' | 'llr'): Array<HlrOb
       title: match[3].trim() || id,
       sourceFile: file.path,
       sourceLine: index + 1,
+      headingLevel: match[1].length,
     };
     blockLines = [];
   });

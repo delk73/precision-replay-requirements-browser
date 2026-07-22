@@ -352,8 +352,7 @@ export default function App() {
   }, [results.matrixRows, selectedId, selectedKind]);
 
   const linkedLlrs = useMemo(() => {
-    if (selectedKind !== 'hlr') return [];
-    return results.llrs.filter((llr) => llr.tracedHlrIds.includes(selectedId));
+    return llrDeclarationLinksForRequirement(results.llrs, selectedId, selectedKind);
   }, [results.llrs, selectedId, selectedKind]);
 
   const linkedHlrs = useMemo(() => {
@@ -1190,9 +1189,13 @@ function TintedRequirementText({ text }: { text: string }) {
 function LinkedRequirements({ linkedHlrs, linkedLlrs, requirement, rows }: { linkedHlrs: HlrObject[]; linkedLlrs: LlrObject[]; requirement: HlrObject | LlrObject; rows: MatrixRowObject[] }) {
   const items = requirement.kind === 'hlr' ? linkedLlrs : linkedHlrs;
   const fallbackText = linkedRequirementsFallbackText(requirement, rows);
+  const heading = linkedRequirementsHeading(requirement);
   return (
     <section className="rounded border border-slate-800 bg-[#111419] p-4">
-      <h3 className="mb-3 text-sm font-semibold">{requirement.kind === 'hlr' ? 'Traced LLRs' : 'Parent HLRs'}</h3>
+      <h3 className="mb-2 text-sm font-semibold">{heading}</h3>
+      {requirement.kind === 'hlr' ? (
+        <p className="mb-3 text-xs text-slate-400">{LLR_DECLARATION_LINKS_EXPLANATION}</p>
+      ) : null}
       {items.length === 0 ? <p className="text-sm text-slate-500">{fallbackText}</p> : (
         <div className="space-y-2">
           {items.map((item) => <p key={item.id} className="rounded border border-slate-800 bg-[#0A0B0E] p-2 font-mono text-xs">{item.id}</p>)}
@@ -1200,6 +1203,17 @@ function LinkedRequirements({ linkedHlrs, linkedLlrs, requirement, rows }: { lin
       )}
     </section>
   );
+}
+
+export const LLR_DECLARATION_LINKS_EXPLANATION = 'Derived from LLR Traces to declarations. Matrix rows separately show traceability and evidence paths.';
+
+export function linkedRequirementsHeading(requirement: HlrObject | LlrObject): string {
+  return requirement.kind === 'hlr' ? 'LLR Declaration Links' : 'Parent HLRs';
+}
+
+export function llrDeclarationLinksForRequirement(llrs: LlrObject[], selectedId: string, selectedKind: RequirementKind): LlrObject[] {
+  if (selectedKind !== 'hlr') return [];
+  return llrs.filter((llr) => llr.tracedHlrIds.includes(selectedId));
 }
 
 export function linkedRequirementsFallbackText(requirement: HlrObject | LlrObject, rows: MatrixRowObject[]): string {
